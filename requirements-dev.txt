@@ -1,0 +1,9 @@
+# Только для разработки. Продакшену это не нужно — там requirements.txt.
+#
+#   pip install -r requirements-dev.txt
+#   python -m pytest tests -q
+#
+# Плагины не требуются: async-тесты запускаются хуком в tests/conftest.py.
+# Объём Монте-Карло задаётся переменной окружения:
+#   $env:MC_ROUNDS = '1000000'; python -m pytest tests -q
+pytest>=8.0

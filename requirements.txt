@@ -1,0 +1,8 @@
+# Всё, что нужно боту. Больше в этом файле ничего быть не должно:
+# прежняя версия тянула glqiwiapi, pyQiwiP2P, coinbase, YooMoney, CherryPy,
+# hypercorn, starlette, Babel и ещё десяток пакетов, ни один из которых
+# в новом коде не используется.
+
+aiogram>=3.7,<4
+aiosqlite>=0.19
+aiohttp>=3.9

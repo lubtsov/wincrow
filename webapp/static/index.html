@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d17">
+<title>WinCrow</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="aura" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<header class="bar">
+  <div class="brand"><span class="logo">🎰</span><span id="casino">WinCrow</span></div>
+  <div class="wallet" title="Баланс">
+    <span class="wallet-label">Баланс</span>
+    <b id="balance">—</b>
+  </div>
+</header>
+
+<main id="app">
+  <!-- Слоты -->
+  <section class="view" id="view-slots" hidden>
+    <div class="slot-head">
+      <div>
+        <h1 id="slot-title">Сочный шторм</h1>
+        <p class="sub" id="slot-sub">6×5, каскады, скопления от 8 символов</p>
+      </div>
+      <button class="chip ghost" id="rules-open" type="button">Выплаты</button>
+    </div>
+
+    <div class="reels-wrap">
+      <div class="reels" id="reels"></div>
+      <div class="win-flash" id="win-flash"></div>
+      <div class="win-badge" id="win-badge" hidden></div>
+    </div>
+
+    <div class="bet-bar">
+      <button class="step" id="bet-minus" type="button" aria-label="Меньше">−</button>
+      <div class="bet-value">
+        <span class="cap">Ставка</span>
+        <b id="bet-label">$0.10</b>
+      </div>
+      <button class="step" id="bet-plus" type="button" aria-label="Больше">+</button>
+    </div>
+    <div class="chips" id="bet-chips"></div>
+
+    <button class="btn spin" id="spin" type="button">
+      <span class="spin-label">SPIN</span>
+    </button>
+
+    <div class="tile" id="spin-log-tile">
+      <h2>История спинов</h2>
+      <div class="log" id="spin-log"><p class="empty">Пока ни одного спина.</p></div>
+    </div>
+  </section>
+
+  <!-- Ежедневный кейс -->
+  <section class="view" id="view-case" hidden>
+    <div class="hero">
+      <div class="prize-badge"><span id="prize">$0.05</span></div>
+      <h1>Ежедневный кейс</h1>
+      <p class="sub" id="sub">Загружаем…</p>
+    </div>
+    <div class="cards" id="cards" aria-label="Карточки кейса"></div>
+    <div class="panel" id="panel"></div>
+  </section>
+
+  <!-- Профиль -->
+  <section class="view" id="view-profile" hidden>
+    <div class="panel" id="profile"></div>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs">
+  <button type="button" data-tab="slots"><span class="ic">🎰</span>Слоты</button>
+  <button type="button" data-tab="case"><span class="ic">🎁</span>Кейс</button>
+  <button type="button" data-tab="profile"><span class="ic">👤</span>Профиль</button>
+</nav>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<div class="bigwin" id="bigwin" hidden>
+  <div class="bigwin-inner">
+    <div class="bigwin-cap" id="bigwin-cap">БОЛЬШОЙ ВЫИГРЫШ</div>
+    <div class="bigwin-sum" id="bigwin-sum">$0.00</div>
+    <div class="bigwin-mult" id="bigwin-mult">×0</div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/case.js"></script>
+<script src="/static/slots.js"></script>
+<script src="/static/profile.js"></script>
+<script>WC.boot();</script>
+</body>
+</html>
