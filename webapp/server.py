@@ -111,6 +111,14 @@ async def _snapshot(user_id: int, st: dict) -> dict:
         'channels': [daily.as_dict(r) for r in st['missing']],
         'broken': len(st['broken']),
         'reveal': _reveal(st['last']) if st['status'] == 'cooldown' else None,
+        # Серия: сколько карточек подряд угадано, какой день идёт и сколько
+        # будет в следующем кейсе. Считает всё это daily.state — экран рисует.
+        'streak': st['streak'],
+        'streak_day': st['streak_day'],
+        'streak_max_days': st['streak_max_days'],
+        'streak_seconds_left': st['streak_seconds_left'],
+        'next_prize': fmt(st['next_prize_cents']),
+        'next_prize_cents': st['next_prize_cents'],
     }
 
 
@@ -226,6 +234,7 @@ async def api_profile(request: web.Request) -> web.Response:
         'SELECT server_seed_hash, client_seed, nonce FROM seeds '
         'WHERE user_id = ?', (user.id,))).fetchone()
     cases = await db.daily_stats(user.id)
+    streak = await db.daily_streak(user.id)
     return web.json_response({
         'id': user.id,
         'name': user.first_name or user.username or str(user.id),
@@ -238,7 +247,9 @@ async def api_profile(request: web.Request) -> web.Response:
         'referrals': row['referrals'], 'level': level, 'percent': percent,
         'referral_earned': fmt(row['referral_earned_cents']),
         'chat_earned': fmt(row['chat_earned_cents']),
-        'cases': {'opened': cases['opened'], 'paid': fmt(cases['paid'])},
+        'cases': {'opened': cases['opened'], 'paid': fmt(cases['paid']),
+                  'streak': streak['streak'],
+                  'next_prize': fmt(streak['prize_cents'])},
         'fair': None if seed is None else {
             'hash': seed['server_seed_hash'], 'client_seed': seed['client_seed'],
             'nonce': seed['nonce']},

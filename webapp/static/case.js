@@ -15,6 +15,45 @@
     el.sub = document.getElementById('sub');
     el.cards = document.getElementById('cards');
     el.panel = document.getElementById('panel');
+    el.streak = document.getElementById('streak');
+  }
+
+  /* --- серия ------------------------------------------------------------- */
+
+  let shownStreak = null;         // чтобы «+1» вспыхивало только на росте
+
+  function dayWord(n) {
+    const tail = n % 100 > 10 && n % 100 < 20 ? 0 : n % 10;
+    return tail === 1 ? 'день' : tail >= 2 && tail <= 4 ? 'дня' : 'дней';
+  }
+
+  function renderStreak(data) {
+    /* Плашка серии: огонёк, счёт и следующая сумма — без правил словами.
+       Механику объясняют сами числа, а абзац текста на этом экране читать
+       никто не станет: игрок пришёл нажать карточку. */
+    const waiting = data.status === 'cooldown';
+    const cold = waiting && !data.streak;      // не угадал — огонёк потух
+    const count = waiting ? data.streak : data.streak_day;
+
+    el.streak.hidden = false;
+    el.streak.className = 'streak' + (cold ? ' cold' : '');
+    el.streak.innerHTML =
+      '<span class="fire">' + (cold ? '🖤' : '🔥') + '</span>' +
+      '<span class="streak-body">' +
+        '<b class="streak-num">' +
+          (cold ? 'Серия сгорела' : count + ' ' + dayWord(count)) + '</b>' +
+        '<span class="streak-cap">' +
+          (waiting ? 'завтра ' : 'в кейсе ') + WC.esc(data.prize) + '</span>' +
+      '</span>' +
+      (waiting ? '' : '<span class="streak-next">дальше<b>' +
+        WC.esc(data.next_prize) + '</b></span>');
+
+    if (shownStreak !== null && data.streak > shownStreak) {
+      el.streak.classList.remove('grew');
+      void el.streak.offsetWidth;
+      el.streak.classList.add('grew');
+    }
+    shownStreak = data.streak;
   }
 
   function stopTimer() {
@@ -171,6 +210,7 @@
     document.getElementById('casino').textContent = data.casino;
     el.prize.textContent = data.prize;
     WC.setBalance(data.balance, bump);
+    renderStreak(data);
 
     if (data.status === 'subscribe') renderSubscribe(data);
     else if (data.status === 'cooldown') renderCooldown(data);
@@ -201,6 +241,8 @@
                                 { case_id: state.case_id, index: index });
       await WC.wait(420);                    // дать анимации карточки доиграть
       state = data;
+      el.prize.textContent = data.prize;
+      renderStreak(data);                    // серия либо выросла, либо сгорела
       if (data.pick === 'subscribe') { render(data); return; }
       if (data.reveal) { renderReveal(data, true); return; }
       render(data);

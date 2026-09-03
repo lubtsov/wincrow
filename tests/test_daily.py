@@ -1,4 +1,4 @@
-"""Ежедневный кейс: пауза, атомарность выдачи и начисления, подписки.
+"""Ежедневный кейс: пауза, атомарность выдачи и начисления, подписки, серия.
 
 Главное, что здесь проверяется, — деньги. Приз должен приезжать ровно один раз
 на кейс, сколько бы кликов, вкладок и перезапусков ни случилось. Всё остальное
@@ -6,6 +6,11 @@
 
 * один кейс в сутки, пауза считается от открытия предыдущего;
 * один кейс — одно открытие и одно начисление.
+
+Третье правило — серия: каждая угаданная карточка подряд добавляет цент к призу
+следующего кейса, а пустая карточка или опоздание гасят огонёк. Проверяется и
+то, что приз фиксируется в момент выдачи: иначе его можно было бы раздуть,
+подождав с открытием.
 """
 
 import asyncio
@@ -19,6 +24,30 @@ import db
 from helpers import fresh_db, mk_user
 
 PRIZE = config.DAILY_PRIZE_CENTS
+STEP = config.DAILY_STREAK_STEP_CENTS
+
+
+async def shift_case_back(case_id: int, seconds: int) -> None:
+    """Отматывает открытие кейса назад: «прошло столько-то времени»."""
+    await db.conn().execute(
+        'UPDATE daily_cases SET opened_at = opened_at - ? WHERE id = ?',
+        (seconds, case_id))
+
+
+async def play_day(uid: int, *, win: bool = True):
+    """День серии: кейс выдан, карточка открыта, сутки прошли.
+
+    Возвращает открытый кейс. `win=False` — игрок ткнул пустую карточку, то есть
+    серия должна оборваться.
+    """
+    case, result = await db.issue_daily_case(uid)
+    assert result == 'issued', result
+    index = case['win_index'] if win else next(
+        i for i in range(case['cards']) if i != case['win_index'])
+    picked, status = await db.pick_daily_case(uid, case['id'], index)
+    assert status == 'ok'
+    await shift_case_back(picked['id'], config.DAILY_COOLDOWN + 1)
+    return picked
 
 
 class StubBot:
@@ -189,6 +218,130 @@ async def test_daily_stats_counts_only_opened():
         stats = await db.daily_stats()
         assert stats == {'opened': 1, 'paid': PRIZE, 'players': 1}
 
+# --- серия ------------------------------------------------------------------
+
+def test_streak_prize_grows_by_one_step_a_day():
+    """День 1 — базовый приз, каждый следующий на шаг больше."""
+    assert db.streak_prize(1) == PRIZE
+    assert db.streak_prize(2) == PRIZE + STEP
+    assert db.streak_prize(3) == PRIZE + 2 * STEP          # 3 дня -> $0.07
+    assert db.streak_prize(0) == PRIZE                     # серии ещё нет
+    # Выше предела приз замирает: это защита кассы, а не подарок за верность.
+    cap = config.DAILY_STREAK_MAX_DAYS
+    assert db.streak_prize(cap) == db.streak_prize(cap + 50)
+
+
+async def test_three_days_in_a_row_pay_five_six_seven():
+    async with fresh_db():
+        uid = await mk_user(40)
+        payouts = [(await play_day(uid))['payout_cents'] for _ in range(3)]
+        assert payouts == [PRIZE, PRIZE + STEP, PRIZE + 2 * STEP]
+        assert await db.get_balance(uid) == sum(payouts)
+
+        streak = await db.daily_streak(uid)
+        assert streak['streak'] == 3
+        assert streak['day'] == 4                          # следующий — четвёртый
+        assert streak['prize_cents'] == PRIZE + 3 * STEP
+        assert streak['expires_at'] > db.now()
+
+
+async def test_empty_card_burns_the_streak():
+    """Не угадал — огонёк потух, и следующий кейс снова базовый."""
+    async with fresh_db():
+        uid = await mk_user(41)
+        await play_day(uid)
+        await play_day(uid)
+        assert (await db.daily_streak(uid))['prize_cents'] == PRIZE + 2 * STEP
+
+        third = await play_day(uid, win=False)
+        assert third['payout_cents'] == 0
+        assert third['prize_cents'] == PRIZE + 2 * STEP    # в кейсе лежало $0.07
+
+        streak = await db.daily_streak(uid)
+        assert streak['streak'] == 0
+        assert streak['day'] == 1
+        assert streak['prize_cents'] == PRIZE
+        assert streak['expires_at'] == 0
+
+        fresh, _ = await db.issue_daily_case(uid)
+        assert fresh['streak'] == 1
+        assert fresh['prize_cents'] == PRIZE
+
+
+async def test_late_player_starts_the_streak_over():
+    """Опоздал за кейсом — серия сгорает, даже если карточку угадал."""
+    async with fresh_db():
+        uid = await mk_user(42)
+        first = await play_day(uid)
+        await play_day(uid)
+        assert (await db.daily_streak(uid))['streak'] == 2
+
+        # Ещё сутки простоя: срок серии (пауза плюс запас) вышел.
+        await shift_case_back((await db.last_daily_case(uid))['id'],
+                              config.DAILY_STREAK_GRACE + 2)
+        streak = await db.daily_streak(uid)
+        assert streak['streak'] == 0
+        assert streak['prize_cents'] == PRIZE
+        assert first['prize_cents'] == PRIZE               # первый день не тронут
+
+
+async def test_prize_is_fixed_when_the_case_is_issued():
+    """Приз считается при выдаче: подождать с открытием и получить больше нельзя."""
+    async with fresh_db():
+        uid = await mk_user(43)
+        await play_day(uid)
+        case, _ = await db.issue_daily_case(uid)
+        assert (case['streak'], case['prize_cents']) == (2, PRIZE + STEP)
+
+        # Игрок ушёл на неделю и вернулся к тому же выданному кейсу.
+        streak = await db.daily_streak(uid)
+        assert streak['day'] == 2 and streak['prize_cents'] == PRIZE + STEP
+        assert streak['expires_at'] == 0        # кейс на руках, гореть нечему
+
+        picked, status = await db.pick_daily_case(uid, case['id'],
+                                                 case['win_index'])
+        assert (status, picked['payout_cents']) == ('ok', PRIZE + STEP)
+
+
+async def test_streak_survives_within_the_grace_window():
+    """Пришёл позже суток, но в пределах запаса — серия жива."""
+    async with fresh_db():
+        uid = await mk_user(44)
+        await play_day(uid)
+        await shift_case_back((await db.last_daily_case(uid))['id'],
+                              config.DAILY_STREAK_GRACE - 60)
+        assert (await db.daily_streak(uid))['streak'] == 1
+        case, _ = await db.issue_daily_case(uid)
+        assert case['streak'] == 2
+
+
+async def test_state_shows_streak_for_every_screen():
+    async with fresh_db():
+        uid = await mk_user(45)
+        bot = StubBot()
+
+        st = await daily.state(bot, uid)                   # кейсов ещё не было
+        assert (st['streak'], st['streak_day']) == (0, 1)
+        assert st['prize_cents'] == PRIZE
+        assert st['next_prize_cents'] == PRIZE + STEP
+
+        await play_day(uid)
+        await play_day(uid)
+        st = await daily.state(bot, uid)                   # кейс снова положен
+        assert st['status'] == 'ready'
+        assert (st['streak'], st['streak_day']) == (2, 3)
+        assert st['prize_cents'] == PRIZE + 2 * STEP       # 3 дня подряд -> $0.07
+        assert st['next_prize_cents'] == PRIZE + 3 * STEP
+        assert st['streak_seconds_left'] > 0
+
+        case, _ = await db.issue_daily_case(uid)
+        await db.pick_daily_case(uid, case['id'], case['win_index'])
+        st = await daily.state(bot, uid)                   # пауза после открытия
+        assert st['status'] == 'cooldown'
+        assert (st['streak'], st['streak_day']) == (3, 4)
+        assert st['prize_cents'] == PRIZE + 3 * STEP       # столько будет завтра
+
+
 # --- обязательные подписки --------------------------------------------------
 
 async def test_channels_crud():
@@ -309,11 +462,38 @@ async def test_bot_screen_texts_build_on_real_rows():
         assert 'Канал подписки' in screen._subscribe_text(st)
 
         case, _ = await db.issue_daily_case(uid)
-        assert '$0.05' in screen._ready_text(await db.get_user(uid))
+        st = await daily.state(StubBot({-1005: 'member'}), uid)
+        ready = screen._ready_text(st, await db.get_user(uid))
+        assert '$0.05' in ready
+        assert 'День <b>1</b>' in ready and '$0.06' in ready   # что будет дальше
 
         picked, _ = await db.pick_daily_case(uid, case['id'], case['win_index'])
-        result = screen._result_text(picked, await db.get_balance(uid))
+        result = screen._result_text(picked, await db.get_balance(uid),
+                                     await db.daily_streak(uid))
         assert '$0.05' in result and '$10.05' in result
+        assert 'Серия <b>1</b>' in result and '$0.06' in result
 
         st = await daily.state(StubBot({-1005: 'member'}), uid)
-        assert 'Следующий через' in screen._cooldown_text(st)
+        cooldown = screen._cooldown_text(st)
+        assert 'Следующий через' in cooldown
+        assert 'Серия <b>1</b>' in cooldown
+
+
+async def test_bot_screen_says_when_the_streak_burns():
+    """Пустая карточка: экран пишет про сгоревшую серию, а не про рост."""
+    from handlers import daily as screen
+
+    async with fresh_db():
+        uid = await mk_user(31, balance_cents=100)
+        await play_day(uid)
+        case, _ = await db.issue_daily_case(uid)
+        empty = next(i for i in range(case['cards']) if i != case['win_index'])
+        picked, _ = await db.pick_daily_case(uid, case['id'], empty)
+
+        result = screen._result_text(picked, await db.get_balance(uid),
+                                     await db.daily_streak(uid))
+        assert 'сгорела' in result and '$0.05' in result
+        assert 'Серия <b>' not in result
+
+        st = await daily.state(StubBot(), uid)
+        assert 'сгорела' in screen._cooldown_text(st)

@@ -108,6 +108,46 @@ main { position: relative; z-index: 1; padding: 8px 16px 0; }
 }
 .prize-badge::before { content: '🎁'; }
 
+/* --- серия ---------------------------------------------------------------- */
+/*
+   Одна полоска на всю ширину: огонёк со счётом слева, сумма следующего кейса
+   справа. Правил здесь нет ни строкой — цифры и суммы объясняют механику
+   короче, чем абзац, а экран остаётся про карточки.
+*/
+
+.streak {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+  gap: 12px; margin: 2px 0 -4px; padding: 11px 14px;
+  border-radius: 18px; border: 1px solid rgba(255, 176, 92, .28);
+  background: linear-gradient(120deg, rgba(255, 138, 62, .18),
+              rgba(255, 207, 92, .07) 60%, rgba(255, 255, 255, .03));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.streak .fire { font-size: 23px; filter: drop-shadow(0 3px 10px rgba(255, 140, 40, .55)); }
+.streak.cold .fire { filter: none; opacity: .75; }
+.streak-body { display: grid; gap: 1px; min-width: 0; }
+.streak-num { font-size: 15px; letter-spacing: -.01em; }
+.streak-cap { font-size: 11.5px; color: var(--muted); }
+.streak-next {
+  display: grid; justify-items: end; gap: 1px;
+  font-size: 10.5px; color: var(--muted); text-transform: lowercase;
+}
+.streak-next b { font-size: 15px; color: var(--gold); }
+
+.streak.cold {
+  border-color: var(--card-line);
+  background: rgba(255, 255, 255, .04);
+}
+
+/* Рост серии: огонёк подпрыгивает один раз, без бесконечной анимации. */
+.streak.grew .fire { animation: fire-pop .7s ease; }
+@keyframes fire-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.45) rotate(-8deg); }
+  60% { transform: scale(1.1) rotate(4deg); }
+  100% { transform: scale(1); }
+}
+
 /* --- карточки ------------------------------------------------------------- */
 
 .cards {

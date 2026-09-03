@@ -186,10 +186,18 @@ window.WC = {
     }
 
     let start = 'slots';
-    try {
-      const saved = localStorage.getItem('wc.tab');
-      if (saved && WC.views[saved]) start = saved;
-    } catch (e) { /* приватный режим */ }
+    // Экран из адреса: кнопки в боте ведут прямо на нужную вкладку
+    // (`...#slots`, `...#case`), и после нажатия искать её не надо. Якорь
+    // главнее сохранённой вкладки — игрок только что выбрал, куда идёт.
+    const asked = (location.hash || '').replace(/^#/, '');
+    if (asked && WC.views[asked]) {
+      start = asked;
+    } else {
+      try {
+        const saved = localStorage.getItem('wc.tab');
+        if (saved && WC.views[saved]) start = saved;
+      } catch (e) { /* приватный режим */ }
+    }
     WC.tab(start);
 
     // Возврат из свёрнутого состояния: состояние могло устареть.

@@ -26,7 +26,7 @@ import config
 import db
 import webapp
 from helpers import fresh_db, mk_user
-from test_daily import PRIZE, StubBot
+from test_daily import PRIZE, StubBot, play_day
 from webapp.server import STATIC
 
 TOKEN = '123456:TEST-TOKEN-FOR-SIGNATURE'
@@ -167,6 +167,53 @@ async def test_parallel_picks_credit_once():
         picks = [(await r.json())['pick'] for r in responses]
         assert picks.count('ok') == 1
         assert await db.get_balance(uid) == PRIZE
+
+
+async def test_state_carries_the_streak():
+    """Серию считает сервер: клиент получает счёт, день и обе суммы готовыми."""
+    async with fresh_db(), client() as c:
+        uid = await mk_user(610)
+        raw = init_data(610)
+
+        first = await (await c.post('/api/state', json={'initData': raw})).json()
+        assert (first['streak'], first['streak_day']) == (0, 1)
+        assert first['prize'] == '$0.05' and first['next_prize'] == '$0.06'
+
+        # Два угаданных дня подряд: третий кейс должен стоить $0.07.
+        for _ in range(2):
+            await play_day(uid)
+        third = await (await c.post('/api/state', json={'initData': raw})).json()
+        assert (third['streak'], third['streak_day']) == (2, 3)
+        assert third['prize'] == '$0.07' and third['next_prize'] == '$0.08'
+        assert third['streak_seconds_left'] > 0
+        assert third['streak_max_days'] == config.DAILY_STREAK_MAX_DAYS
+
+        # Открыли третий на пустую карточку — огонёк гаснет прямо в ответе.
+        opened = await (await c.post('/api/case/open', json={'initData': raw})).json()
+        case = await db.open_daily_case(uid)
+        empty = next(i for i in range(case['cards']) if i != case['win_index'])
+        after = await (await c.post('/api/case/pick', json={
+            'initData': raw, 'case_id': opened['case_id'], 'index': empty})).json()
+        assert after['streak'] == 0
+        assert after['prize'] == '$0.05'
+
+
+async def test_pick_grows_the_streak_and_the_prize():
+    async with fresh_db(), client() as c:
+        uid = await mk_user(611, balance_cents=100)
+        raw = init_data(611)
+        await play_day(uid)
+
+        opened = await (await c.post('/api/case/open', json={'initData': raw})).json()
+        case = await db.open_daily_case(uid)
+        assert case['prize_cents'] == PRIZE + config.DAILY_STREAK_STEP_CENTS
+
+        data = await (await c.post('/api/case/pick', json={
+            'initData': raw, 'case_id': opened['case_id'],
+            'index': case['win_index']})).json()
+        assert data['reveal']['payout_cents'] == case['prize_cents']
+        assert data['streak'] == 2
+        assert data['prize'] == '$0.07'          # столько будет в следующем
 
 async def test_pick_requires_subscription():
     async with fresh_db():
@@ -315,7 +362,8 @@ async def test_profile_shows_the_same_numbers_as_the_bot():
         assert data['balance_cents'] == row['balance_cents']
         assert data['played'] == 1
         assert data['wagered'] == '$1.00'
-        assert data['cases'] == {'opened': 1, 'paid': '$0.05'}
+        assert data['cases'] == {'opened': 1, 'paid': '$0.05',
+                                 'streak': 1, 'next_prize': '$0.06'}
         assert data['fair']['nonce'] == 1
 
 

@@ -30,7 +30,12 @@
       '</div>' +
 
       '<div class="tile"><h2>🎁 Кейсы</h2><p>Открыто: <b>' + p.cases.opened +
-        '</b> · получено <b>' + WC.esc(p.cases.paid) + '</b></p></div>' +
+        '</b> · получено <b>' + WC.esc(p.cases.paid) + '</b></p>' +
+        '<p class="sub">' + (p.cases.streak
+          ? '🔥 Серия ' + p.cases.streak + ' · следующий кейс ' +
+            WC.esc(p.cases.next_prize)
+          : '🖤 Серии нет · следующий кейс ' + WC.esc(p.cases.next_prize)) +
+        '</p></div>' +
 
       '<div class="tile"><h2>👥 Друзья</h2><p>Приглашено: <b>' + p.referrals +
         '</b> · уровень <b>' + p.level + '</b> (' + p.percent + '% с их ' +

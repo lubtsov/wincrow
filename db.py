@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS daily_cases (
     win_index    INTEGER NOT NULL,      -- 0..cards-1, решено сервером при выдаче
     prize_cents  INTEGER NOT NULL,      -- что лежит в выигрышной карточке
     cards        INTEGER NOT NULL,      -- сколько карточек было в этом кейсе
+    streak       INTEGER NOT NULL DEFAULT 1,  -- какой это день серии подряд
     picked_index INTEGER,               -- NULL — кейс ещё не открыт
     payout_cents INTEGER NOT NULL DEFAULT 0,
     status       TEXT    NOT NULL,      -- 'open' | 'done'
@@ -272,6 +273,7 @@ _ADDED_COLUMNS = (
     ('users', 'chat_earned_cents', 'INTEGER NOT NULL DEFAULT 0'),
     ('rounds', 'chat_id', 'INTEGER'),
     ('rounds', 'client_id', 'TEXT'),
+    ('daily_cases', 'streak', 'INTEGER NOT NULL DEFAULT 1'),
 )
 
 # Индексы, которые нельзя создать вместе со схемой: они стоят на колонках из
@@ -1205,6 +1207,49 @@ async def pvp_my_room(game: str, user_id: int) -> aiosqlite.Row | None:
 #
 # Поэтому двойной клик, две вкладки Mini App и перезапуск бота заплатить дважды
 # не могут: второй вызов просто не найдёт строку в статусе 'open'.
+#
+# Четвёртое правило — серия. Номер дня подряд пишется в саму выдачу
+# (`daily_cases.streak`) вместе с призом этого дня, поэтому приз нельзя раздуть
+# задним числом: он зафиксирован в момент выдачи и в открытии уже не считается.
+
+
+def streak_prize(streak: int) -> int:
+    """Приз за указанный день серии, в центах.
+
+    День 1 — базовый `config.DAILY_PRIZE_CENTS`, каждый следующий на шаг больше:
+    при базе $0.05 и шаге в цент серия 3 даёт $0.07. После
+    `config.DAILY_STREAK_MAX_DAYS` приз замирает — предел стоит ради кассы.
+    """
+    days = max(1, min(streak, config.DAILY_STREAK_MAX_DAYS))
+    return config.DAILY_PRIZE_CENTS + config.DAILY_STREAK_STEP_CENTS * (days - 1)
+
+
+def streak_deadline(opened_at: int | None) -> int:
+    """До какого момента серия жива после открытия кейса. 0 — открытий не было.
+
+    Кейс становится доступен через сутки, и ещё сутки (`DAILY_STREAK_GRACE`)
+    даётся на то, чтобы за ним прийти: иначе серию срывал бы сдвиг на пару
+    часов — сегодня зашёл вечером, завтра утром.
+    """
+    if opened_at is None:
+        return 0
+    return opened_at + config.DAILY_COOLDOWN + config.DAILY_STREAK_GRACE
+
+
+def _next_streak(last_row, at: int) -> int:
+    """Каким будет день серии у кейса, выданного в момент `at`.
+
+    Серия живёт на двух условиях сразу: прошлую карточку игрок угадал и пришёл
+    за новым кейсом до срока. Пустая карточка гасит огонёк ровно так же, как
+    пропущенный день, — иначе «серия» считала бы заходы, а не удачу.
+    """
+    if last_row is None or last_row['opened_at'] is None:
+        return 1
+    if not last_row['payout_cents']:
+        return 1
+    if at <= streak_deadline(last_row['opened_at']):
+        return (last_row['streak'] or 1) + 1
+    return 1
 
 
 async def open_daily_case(user_id: int) -> aiosqlite.Row | None:
@@ -1230,6 +1275,42 @@ async def daily_ready_at(user_id: int) -> int:
     return ready if ready > now() else 0
 
 
+async def daily_streak(user_id: int) -> dict:
+    """Серия кейсов игрока: сколько дней подряд угадано и что будет дальше.
+
+    * `streak` — угаданных карточек подряд, 0 — огонёк потух (не угадал в
+      прошлый раз или опоздал за кейсом);
+    * `day` — день серии для кейса, о котором идёт речь: у выданного — его
+      собственный, иначе у следующего;
+    * `prize_cents` — что лежит в этом кейсе;
+    * `next_prize_cents` — что будет в следующем, если и этот угадать;
+    * `expires_at` — когда серия сгорит сама; 0 — гореть нечему или кейс уже на
+      руках, а он ничего не потеряет: день и приз записаны при выдаче.
+    """
+    case = await open_daily_case(user_id)
+    last = await last_daily_case(user_id)
+
+    alive = (last is not None and last['opened_at'] is not None
+             and bool(last['payout_cents'])
+             and now() <= streak_deadline(last['opened_at']))
+    streak = (last['streak'] or 1) if alive else 0
+
+    if case is not None:
+        day, prize, expires_at = case['streak'] or 1, case['prize_cents'], 0
+    else:
+        day = streak + 1
+        prize = streak_prize(day)
+        expires_at = streak_deadline(last['opened_at']) if alive else 0
+
+    return {
+        'streak': streak,
+        'day': day,
+        'prize_cents': prize,
+        'next_prize_cents': streak_prize(day + 1),
+        'expires_at': expires_at,
+    }
+
+
 async def issue_daily_case(user_id: int, *, prize_cents: int | None = None,
                            cards: int | None = None
                            ) -> tuple[aiosqlite.Row | None, str]:
@@ -1238,8 +1319,11 @@ async def issue_daily_case(user_id: int, *, prize_cents: int | None = None,
     Идемпотентна: пока выданный кейс не открыт, повторный вызов отдаёт его же,
     а не плодит новые. Выигрышная карточка выбирается secrets, а не random:
     random предсказуем по seed, и приз считался бы наперёд.
+
+    День серии и приз этого дня считаются здесь же, в одной транзакции с
+    выдачей: приз, лежащий в кейсе, не должен меняться от того, когда игрок
+    дошёл до карточек.
     """
-    prize = config.DAILY_PRIZE_CENTS if prize_cents is None else prize_cents
     count = config.DAILY_CARDS if cards is None else cards
     async with transaction() as c:
         row = await (await c.execute(
@@ -1249,16 +1333,19 @@ async def issue_daily_case(user_id: int, *, prize_cents: int | None = None,
             return row, 'open'
 
         last = await (await c.execute(
-            'SELECT opened_at FROM daily_cases WHERE user_id = ? AND '
-            'status = "done" ORDER BY id DESC LIMIT 1', (user_id,))).fetchone()
+            'SELECT opened_at, streak, payout_cents FROM daily_cases '
+            'WHERE user_id = ? AND status = "done" '
+            'ORDER BY id DESC LIMIT 1', (user_id,))).fetchone()
         if last is not None and last['opened_at'] is not None \
                 and last['opened_at'] + config.DAILY_COOLDOWN > now():
             return None, 'cooldown'
 
+        streak = _next_streak(last, now())
+        prize = streak_prize(streak) if prize_cents is None else prize_cents
         cur = await c.execute(
             'INSERT INTO daily_cases (user_id, win_index, prize_cents, cards, '
-            'status, created_at) VALUES (?, ?, ?, ?, "open", ?)',
-            (user_id, secrets.randbelow(count), prize, count, now()))
+            'streak, status, created_at) VALUES (?, ?, ?, ?, ?, "open", ?)',
+            (user_id, secrets.randbelow(count), prize, count, streak, now()))
         fresh = await (await c.execute(
             'SELECT * FROM daily_cases WHERE id = ?', (cur.lastrowid,))).fetchone()
         return fresh, 'issued'

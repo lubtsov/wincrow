@@ -127,9 +127,48 @@ def test_webapp_button_only_in_private():
     config.WEBAPP_URL = 'https://case.example.org'
     private = kb.main_menu(False, 'pilot_bot', True)
     group = kb.main_menu(False, 'pilot_bot', False)
-    assert _webapps(private) == ['https://case.example.org']
+    assert _webapps(private) == ['https://case.example.org#case',
+                                 'https://case.example.org#slots']
     assert _webapps(group) == []
     assert 'case' in _datas(group)
+
+
+def _labels(markup) -> list[str]:
+    return [b.text for row in markup.inline_keyboard for b in row]
+
+
+def test_menu_has_its_own_button_for_slots():
+    """Слот живёт только в приложении, поэтому вход в него — отдельная кнопка.
+
+    Кнопка кейса ведёт на кейс, эта — на слоты: экран уезжает якорем в адресе,
+    и игроку не приходится каждый раз искать нужную вкладку.
+    """
+    config.WEBAPP_URL = 'https://case.example.org'
+    menu = kb.main_menu(False, 'pilot_bot', True)
+    assert kb.SLOTS_LABEL in _labels(menu)
+    assert 'https://case.example.org#slots' in _webapps(menu)
+
+    # Приложения нет — кнопки нет вовсе: внутри бота этого слота не существует.
+    config.WEBAPP_URL = ''
+    assert kb.SLOTS_LABEL not in _labels(kb.main_menu(False, 'pilot_bot', True))
+
+
+def test_bottom_keyboard_opens_slots():
+    config.WEBAPP_URL = 'https://case.example.org'
+    button = kb.app_keyboard().keyboard[0][0]
+    assert button.text == kb.APP_LABEL
+    assert button.web_app.url == 'https://case.example.org#slots'
+
+    config.WEBAPP_URL = ''
+    assert kb.app_keyboard() is None
+
+
+def test_screen_url_needs_both_domain_and_screen():
+    config.WEBAPP_URL = 'https://case.example.org'
+    assert config.webapp_screen_url('case') == 'https://case.example.org#case'
+    assert config.webapp_screen_url() == 'https://case.example.org'
+    config.WEBAPP_URL = ''
+    assert config.webapp_screen_url('slots') == ''
 
 
 def test_case_cards_carry_case_id():

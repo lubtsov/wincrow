@@ -51,18 +51,22 @@ def support_row() -> list[InlineKeyboardButton] | None:
 CASE_LABEL = '🎁 Ежедневный кейс'
 
 
-def webapp_row(private: bool, label: str = CASE_LABEL
+def webapp_row(private: bool, label: str = CASE_LABEL, screen: str = 'case'
                ) -> list[InlineKeyboardButton] | None:
     """Кнопка Mini App. None — Mini App не настроен или чат не приватный.
 
     web_app-кнопки Telegram принимает только в личке; в группе он отклонит из-за
     неё всю клавиатуру целиком, поэтому там кнопки просто нет — кейс открывается
     в личке, кнопкой `case`.
+
+    screen — с какого экрана открыть приложение (`config.webapp_screen_url`):
+    кнопка кейса ведёт сразу на кейс, кнопка слотов — на слоты, и игроку не
+    приходится искать нужную вкладку после каждого открытия.
     """
     if not private or not config.WEBAPP_URL:
         return None
-    return [InlineKeyboardButton(text=label,
-                                 web_app=WebAppInfo(url=config.WEBAPP_URL))]
+    return [InlineKeyboardButton(
+        text=label, web_app=WebAppInfo(url=config.webapp_screen_url(screen)))]
 
 
 def case_row(private: bool) -> list[InlineKeyboardButton]:
@@ -71,6 +75,16 @@ def case_row(private: bool) -> list[InlineKeyboardButton]:
 
 
 APP_LABEL = '🎰 Играть в приложении'
+SLOTS_LABEL = '🎰 Слоты в приложении'
+
+
+def slots_row(private: bool) -> list[InlineKeyboardButton] | None:
+    """Кнопка слотов. None — приложения нет или это группа.
+
+    Слот живёт только в Mini App, поэтому запасного экрана внутри бота у этой
+    кнопки нет: без приложения её просто не рисуем.
+    """
+    return webapp_row(private, SLOTS_LABEL, 'slots')
 
 
 def app_keyboard() -> ReplyKeyboardMarkup | None:
@@ -84,8 +98,9 @@ def app_keyboard() -> ReplyKeyboardMarkup | None:
     if not config.WEBAPP_URL:
         return None
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=APP_LABEL,
-                                  web_app=WebAppInfo(url=config.WEBAPP_URL))]],
+        keyboard=[[KeyboardButton(
+            text=APP_LABEL,
+            web_app=WebAppInfo(url=config.webapp_screen_url('slots')))]],
         resize_keyboard=True, is_persistent=True)
 
 
@@ -99,9 +114,9 @@ def main_menu(is_admin: bool = False, bot_username: str | None = None,
     а не callback, и без имени бота ссылку не собрать. Если имя не передали,
     кнопка просто не рисуется — мёртвая ссылка хуже её отсутствия.
 
-    private — меню рисуется в личке. От этого зависит кнопка ежедневного кейса:
-    в личке это web_app-кнопка Mini App, в группе — обычный callback, потому что
-    web_app-кнопку Telegram в группе не принимает.
+    private — меню рисуется в личке. От этого зависят кнопки приложения: в личке
+    это web_app-кнопки Mini App, в группе — обычный callback у кейса, а слотов
+    там нет вовсе, потому что web_app-кнопку Telegram в группе не принимает.
 
     Раздела «Помощь» здесь нет: экран-пересказ того, что и так написано на
     экранах кассы и правил, только прятал за собой профиль и баланс. Теперь
@@ -114,7 +129,7 @@ def main_menu(is_admin: bool = False, bot_username: str | None = None,
         [btn('👤 Профиль', 'profile'), btn('💳 Баланс', 'balance')],
         [btn('👥 Пригласить', 'refs'), btn('🏆 ТОП-10', 'top')],
     ]
-    for row in (add_to_chat(bot_username), support_row()):
+    for row in (slots_row(private), add_to_chat(bot_username), support_row()):
         if row:
             rows.append(row)
     if is_admin:

@@ -7,6 +7,7 @@
 Что здесь решается:
 
 * положен ли игроку кейс прямо сейчас (пауза считается в `db.daily_ready_at`);
+* какой день серии идёт и сколько лежит в кейсе (`db.daily_streak`);
 * на какие каналы он не подписан — список каналов задаёт админ, в коде их нет;
 * что делать, если подписку проверить нечем.
 
@@ -99,10 +100,20 @@ async def state(bot, user_id: int) -> dict:
       'open'      — кейс уже выдан, ждёт выбора карточки;
       'subscribe' — не хватает подписок;
       'cooldown'  — уже получен, ждём следующего.
+
+    Серия отдаётся здесь же, чтобы оба экрана считали её одинаково:
+
+      streak        — сколько карточек подряд игрок угадал; 0 — огонёк потух;
+      streak_day    — какой это день серии для кейса, о котором идёт речь:
+                      для выданного — его собственный, иначе — следующего;
+      prize_cents   — что лежит в этом кейсе;
+      next_prize_cents — что будет в следующем, если и этот угадать;
+      streak_seconds_left — сколько осталось, чтобы серия не сгорела.
     """
     case = await db.open_daily_case(user_id)
     ready_at = await db.daily_ready_at(user_id)
     last = await db.last_daily_case(user_id)
+    streak = await db.daily_streak(user_id)
 
     missing: list = []
     broken: list = []
@@ -126,9 +137,17 @@ async def state(bot, user_id: int) -> dict:
         'seconds_left': max(0, ready_at - db.now()) if ready_at else 0,
         'missing': missing,
         'broken': broken,
-        'prize_cents': config.DAILY_PRIZE_CENTS,
+        'prize_cents': streak['prize_cents'],
         'cards': config.DAILY_CARDS,
         'cooldown': config.DAILY_COOLDOWN,
+        'streak': streak['streak'],
+        'streak_day': streak['day'],
+        'next_prize_cents': streak['next_prize_cents'],
+        'streak_step_cents': config.DAILY_STREAK_STEP_CENTS,
+        'streak_max_days': config.DAILY_STREAK_MAX_DAYS,
+        'streak_expires_at': streak['expires_at'],
+        'streak_seconds_left': max(0, streak['expires_at'] - db.now())
+                               if streak['expires_at'] else 0,
     }
 
 

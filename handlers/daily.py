@@ -35,14 +35,27 @@ HEAD = f'{E.GIFT} <b>Ежедневный кейс</b>'
 
 # --- тексты -----------------------------------------------------------------
 
-def _rules() -> str:
-    return (f'Карточек {config.DAILY_CARDS}: в одной '
-            f'<b>{fmt(config.DAILY_PRIZE_CENTS)}</b>, в остальных пусто. '
-            f'Кейс — раз в {daily.left_text(config.DAILY_COOLDOWN)}.')
+def _streak_line(st: dict) -> str:
+    """Строка про серию: огонёк, счёт и сумма. Правил словами здесь нет.
+
+    Механику объясняют сами числа — день рядом с огоньком и две суммы. Абзац
+    про то, как считается серия, на этом экране превращается в простыню, а
+    прочитать его всё равно некому: игрок пришёл нажать карточку.
+    """
+    if st['status'] == 'cooldown':
+        if st['streak']:
+            return (f'🔥 Серия <b>{st["streak"]}</b> · завтра '
+                    f'<b>{fmt(st["prize_cents"])}</b>')
+        return f'🖤 Серия сгорела · завтра снова <b>{fmt(st["prize_cents"])}</b>'
+    return (f'🔥 День <b>{st["streak_day"]}</b> · в кейсе '
+            f'<b>{fmt(st["prize_cents"])}</b> → дальше '
+            f'<b>{fmt(st["next_prize_cents"])}</b>')
 
 
-def _ready_text(user) -> str:
-    return (f'{HEAD}\n\n{_rules()}\n\n'
+def _ready_text(st: dict, user) -> str:
+    return (f'{HEAD}\n\n'
+            f'{_streak_line(st)}\n'
+            f'Одна из {st["cards"]} карточек — приз.\n\n'
             f'Баланс: <b>{fmt(user["balance_cents"])}</b>\n\n'
             f'Выбирай карточку — и удачи.')
 
@@ -63,19 +76,23 @@ def _cooldown_text(st: dict) -> str:
     got = fmt(last['payout_cents']) if last is not None else fmt(0)
     return (f'{HEAD}\n\n'
             f'{E.OK} Кейс на сегодня уже открыт — <b>{got}</b>.\n'
+            f'{_streak_line(st)}\n'
             f'{E.WAIT} Следующий через '
-            f'<b>{daily.left_text(st["seconds_left"])}</b>.\n\n'
-            f'{_rules()}')
+            f'<b>{daily.left_text(st["seconds_left"])}</b>.')
 
 
-def _result_text(case, balance_cents: int) -> str:
+def _result_text(case, balance_cents: int, streak: dict) -> str:
     picked = (case['picked_index'] or 0) + 1
     if case['payout_cents']:
         head = (f'{E.GIFT} <b>Карточка {picked} — '
-                f'{fmt(case["payout_cents"])}!</b>\nПриз уже на балансе.')
+                f'{fmt(case["payout_cents"])}!</b>\nПриз уже на балансе.\n'
+                f'🔥 Серия <b>{streak["streak"]}</b> · завтра '
+                f'<b>{fmt(streak["prize_cents"])}</b>')
     else:
         head = (f'{E.GIFT} <b>Карточка {picked} — пусто.</b>\n'
-                f'Приз лежал в карточке {case["win_index"] + 1}.')
+                f'Приз лежал в карточке {case["win_index"] + 1}.\n'
+                f'🖤 Серия сгорела · завтра снова '
+                f'<b>{fmt(streak["prize_cents"])}</b>')
     return (f'{head}\n'
             f'Баланс: <b>{fmt(balance_cents)}</b>\n\n'
             f'{E.WAIT} Следующий кейс через '
@@ -102,7 +119,7 @@ async def show_case(event, user, *, notice: str = '') -> None:
         text, markup = _cooldown_text(st), kb.case_wait(private)
     else:
         case = st['case']
-        text = _ready_text(user)
+        text = _ready_text(st, user)
         markup = kb.case_cards(case['id'], case['cards'], private)
 
     await render(event, f'{notice}\n\n{text}' if notice else text, markup)
@@ -173,13 +190,16 @@ async def cb_pick(call: CallbackQuery, user):
         # Двойной клик или вторая вкладка Mini App: приз начислен один раз,
         # показываем тот же результат, что и в первый.
         await call.answer('Этот кейс уже открыт.')
-        await render(call, _result_text(case, await db.get_balance(user['user_id'])),
+        await render(call, _result_text(case, await db.get_balance(user['user_id']),
+                                       await db.daily_streak(user['user_id'])),
                      kb.case_result(case))
         return
 
     await call.answer('Открываем…')
     await _animate(call, case)
-    await render(call, _result_text(case, await db.get_balance(user['user_id'])),
+    await render(call, _result_text(case, await db.get_balance(user['user_id']),
+                                   await db.daily_streak(user['user_id'])),
                  kb.case_result(case))
-    log.info('кейс #%s: игрок %s выбрал карточку %s, приз %s',
-             case_id, user['user_id'], index, case['payout_cents'])
+    log.info('кейс #%s: игрок %s выбрал карточку %s, приз %s (серия %s)',
+             case_id, user['user_id'], index, case['payout_cents'],
+             case['streak'])
