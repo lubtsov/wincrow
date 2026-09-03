@@ -121,14 +121,13 @@ def test_case_button_without_webapp_is_a_callback():
 def test_webapp_button_only_in_private():
     """web_app-кнопку Telegram принимает только в личке.
 
-    В группе она отклонила бы всю клавиатуру целиком, поэтому там на её месте
-    обычный callback — кейс открывается экраном бота.
+    В группе она отклонила бы всю клавиатуру целиком, поэтому там её нет вовсе,
+    а кейс и остальные экраны бота работают как обычно.
     """
     config.WEBAPP_URL = 'https://case.example.org'
     private = kb.main_menu(False, 'pilot_bot', True)
     group = kb.main_menu(False, 'pilot_bot', False)
-    assert _webapps(private) == ['https://case.example.org#case',
-                                 'https://case.example.org#slots']
+    assert _webapps(private) == ['https://case.example.org#games']
     assert _webapps(group) == []
     assert 'case' in _datas(group)
 
@@ -137,30 +136,32 @@ def _labels(markup) -> list[str]:
     return [b.text for row in markup.inline_keyboard for b in row]
 
 
-def test_menu_has_its_own_button_for_slots():
-    """Слот живёт только в приложении, поэтому вход в него — отдельная кнопка.
+def test_case_button_always_opens_the_bot_screen():
+    """Кейс открывается экраном бота — и в личке, и в группе.
 
-    Кнопка кейса ведёт на кейс, эта — на слоты: экран уезжает якорем в адресе,
-    и игроку не приходится каждый раз искать нужную вкладку.
+    Раньше в личке на этом месте стояла web_app-кнопка, и если приложение не
+    открывалось, кейса у игрока не было вовсе.
     """
     config.WEBAPP_URL = 'https://case.example.org'
-    menu = kb.main_menu(False, 'pilot_bot', True)
-    assert kb.SLOTS_LABEL in _labels(menu)
-    assert 'https://case.example.org#slots' in _webapps(menu)
-
-    # Приложения нет — кнопки нет вовсе: внутри бота этого слота не существует.
-    config.WEBAPP_URL = ''
-    assert kb.SLOTS_LABEL not in _labels(kb.main_menu(False, 'pilot_bot', True))
+    for private in (True, False):
+        menu = kb.main_menu(False, 'pilot_bot', private)
+        assert 'case' in _datas(menu)
+        assert kb.CASE_LABEL in _labels(menu)
 
 
-def test_bottom_keyboard_opens_slots():
+def test_menu_has_its_own_button_for_the_app():
+    """Игры приложения живут только в вебе, поэтому вход в него — своя кнопка."""
     config.WEBAPP_URL = 'https://case.example.org'
-    button = kb.app_keyboard().keyboard[0][0]
-    assert button.text == kb.APP_LABEL
-    assert button.web_app.url == 'https://case.example.org#slots'
+    menu = kb.main_menu(False, 'pilot_bot', True)
+    assert kb.APP_LABEL in _labels(menu)
+    assert 'https://case.example.org#games' in _webapps(menu)
 
+    # В группе web_app-кнопку Telegram не принимает — там её нет.
+    assert _webapps(kb.main_menu(False, 'pilot_bot', False)) == []
+
+    # Приложения нет — кнопки нет вовсе.
     config.WEBAPP_URL = ''
-    assert kb.app_keyboard() is None
+    assert kb.APP_LABEL not in _labels(kb.main_menu(False, 'pilot_bot', True))
 
 
 def test_screen_url_needs_both_domain_and_screen():

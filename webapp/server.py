@@ -12,6 +12,7 @@
 потому что клиент его и не сообщает.
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -26,6 +27,7 @@ import daily
 import db
 from db import fmt
 from games import storm
+from webapp import games
 
 log = logging.getLogger(__name__)
 
@@ -257,13 +259,96 @@ async def api_profile(request: web.Request) -> web.Response:
     })
 
 
+# --- остальные игры ---------------------------------------------------------
+#
+# Монетка, рулетка, мины, башня, краш и блэкджек. Правила и деньги — те же, что
+# в боте (webapp/games.py объясняет, почему дайс-игр здесь нет).
+
+
+async def _game_answer(user_id: int, view: dict, status: str) -> web.Response:
+    """Общий ответ игр: раунд, свежий баланс и лента последних раундов."""
+    row = await db.get_user(user_id)
+    balance = row['balance_cents'] if row is not None else 0
+    return web.json_response({
+        'status': status,
+        'round': view or None,
+        'balance_cents': balance, 'balance': fmt(balance),
+        'history': await games.history(user_id),
+    })
+
+
+async def api_games(request: web.Request) -> web.Response:
+    """Экран игр: каталог, лимиты, незакрытые раунды, история."""
+    _, user = await _auth(request)
+    return web.json_response(await games.screen(user.id))
+
+
+async def api_game_play(request: web.Request) -> web.Response:
+    body, user = await _auth(request)
+    game, bet = body.get('game'), body.get('bet_cents')
+    client_id, pick = body.get('client_id'), body.get('pick')
+    if not isinstance(game, str) or not isinstance(bet, int) \
+            or isinstance(bet, bool) or bet <= 0 \
+            or not isinstance(client_id, str) or not client_id \
+            or (pick is not None and not isinstance(pick, str)):
+        raise _fail(400, 'bad-request')
+
+    view, status = await games.start(user.id, game, bet, client_id, pick)
+    if status == 'ok':
+        log.info('%s: игрок %s ставка %s (%s)', game, user.id, bet, pick or '-')
+    return await _game_answer(user.id, view, status)
+
+
+async def api_game_step(request: web.Request) -> web.Response:
+    body, user = await _auth(request)
+    game, round_id = body.get('game'), body.get('round_id')
+    action = body.get('action')
+    if not isinstance(game, str) or not isinstance(round_id, int) \
+            or isinstance(round_id, bool) \
+            or not isinstance(action, str) or not 0 < len(action) <= 3:
+        raise _fail(400, 'bad-request')
+
+    view, status = await games.step(user.id, game, round_id, action)
+    return await _game_answer(user.id, view, status)
+
+
 # --- статика ----------------------------------------------------------------
 
 async def page(request: web.Request) -> web.Response:
     """Сама страница Mini App. Без кеша: версия в Telegram живёт долго."""
     body = (STATIC / 'index.html').read_text(encoding='utf-8')
+    body = body.replace('?v=dev', f'?v={static_version()}')
     return web.Response(text=body, content_type='text/html',
                         headers={'Cache-Control': 'no-store'})
+
+
+def static_version() -> str:
+    """Отпечаток статики: меняется при любой правке файла в webapp/static.
+
+    Он подставляется в ссылки на скрипты и стили, потому что webview Telegram
+    держит их в кеше очень долго: без смены адреса игрок после обновления
+    получает старый JS к новой странице, и приложение перестаёт отвечать на
+    нажатия, ничего при этом не показывая.
+    """
+    stamp = sorted((p.name, p.stat().st_mtime_ns, p.stat().st_size)
+                   for p in STATIC.iterdir() if p.is_file())
+    return hashlib.sha1(repr(stamp).encode()).hexdigest()[:12]
+
+
+async def static_file(request: web.Request) -> web.FileResponse:
+    """Файл из webapp/static. Подпапок нет, поэтому и имя — только имя файла.
+
+    `no-cache` не запрещает кеш, а требует проверять свежесть: браузер шлёт
+    условный запрос и получает 304, пока файл не изменился. Вместе с версией в
+    адресе это значит, что обновление доезжает сразу, а трафик не тратится.
+    """
+    name = request.match_info['name']
+    if '/' in name or '\\' in name or name.startswith('.'):
+        raise web.HTTPNotFound()
+    path = STATIC / name
+    if not path.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={'Cache-Control': 'no-cache'})
 
 
 async def health(_: web.Request) -> web.Response:
@@ -296,8 +381,11 @@ def build(bot: Bot) -> web.Application:
     app.router.add_post('/api/case/pick', api_pick)
     app.router.add_post('/api/slots/state', api_slots)
     app.router.add_post('/api/slots/spin', api_spin)
+    app.router.add_post('/api/games/state', api_games)
+    app.router.add_post('/api/games/play', api_game_play)
+    app.router.add_post('/api/games/step', api_game_step)
     app.router.add_post('/api/profile', api_profile)
-    app.router.add_static('/static/', STATIC, name='static')
+    app.router.add_get('/static/{name}', static_file)
     return app
 
 

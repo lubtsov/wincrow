@@ -139,8 +139,13 @@ async def _animate(call: CallbackQuery, case) -> None:
 
 # --- хендлеры ---------------------------------------------------------------
 
-@router.message(Command('case'), F.chat.type == 'private')
+@router.message(Command('case'))
 async def cmd_case(message: Message, state: FSMContext, user):
+    """`/case` работает и в личке, и в группе.
+
+    В группе экран тот же, только без web_app-кнопок: Telegram их там не
+    принимает, а сам кейс от чата не зависит — он привязан к игроку.
+    """
     await state.clear()
     await show_case(message, user)
 

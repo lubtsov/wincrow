@@ -6,10 +6,11 @@
 <meta name="theme-color" content="#0b0d17">
 <title>WinCrow</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v=dev">
 </head>
 <body>
 <div class="aura" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="banner" id="banner" hidden></div>
 
 <header class="bar">
   <div class="brand"><span class="logo">🎰</span><span id="casino">WinCrow</span></div>
@@ -72,9 +73,39 @@
   <section class="view" id="view-profile" hidden>
     <div class="panel" id="profile"></div>
   </section>
+
+  <!-- Остальные игры: краш, мины, башня, блэкджек, рулетка, монетка -->
+  <section class="view" id="view-games" hidden>
+    <div class="games-head">
+      <div>
+        <h1 id="games-title">Игры</h1>
+        <p class="sub" id="games-sub">Ставка снимается сервером, как в боте</p>
+      </div>
+      <button class="chip ghost" id="games-back" type="button" hidden>← Все игры</button>
+    </div>
+    <div class="game-list" id="game-list"></div>
+    <div class="game-table" id="game-table" hidden>
+      <div class="board" id="board"></div>
+      <div class="bet-bar" id="game-bet-bar">
+        <button class="step" id="game-bet-minus" type="button" aria-label="Меньше">−</button>
+        <div class="bet-value">
+          <span class="cap">Ставка</span>
+          <b id="game-bet-label">$0.10</b>
+        </div>
+        <button class="step" id="game-bet-plus" type="button" aria-label="Больше">+</button>
+      </div>
+      <div class="chips" id="game-chips"></div>
+      <div class="game-actions" id="game-actions"></div>
+    </div>
+    <div class="tile" id="game-log-tile">
+      <h2>Последние раунды</h2>
+      <div class="log" id="game-log"><p class="empty">Пока пусто.</p></div>
+    </div>
+  </section>
 </main>
 
 <nav class="tabs" id="tabs">
+  <button type="button" data-tab="games"><span class="ic">🎮</span>Игры</button>
   <button type="button" data-tab="slots"><span class="ic">🎰</span>Слоты</button>
   <button type="button" data-tab="case"><span class="ic">🎁</span>Кейс</button>
   <button type="button" data-tab="profile"><span class="ic">👤</span>Профиль</button>
@@ -92,10 +123,11 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
-<script src="/static/case.js"></script>
-<script src="/static/slots.js"></script>
-<script src="/static/profile.js"></script>
+<script src="/static/app.js?v=dev"></script>
+<script src="/static/case.js?v=dev"></script>
+<script src="/static/slots.js?v=dev"></script>
+<script src="/static/games.js?v=dev"></script>
+<script src="/static/profile.js?v=dev"></script>
 <script>WC.boot();</script>
 </body>
 </html>

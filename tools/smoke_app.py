@@ -53,13 +53,17 @@ async def probe(port: int) -> None:
         async with session.get(base + '/') as r:
             body = await r.text()
             print('страница:', r.status, len(body), 'байт; экраны:',
-                  all(k in body for k in ('view-slots', 'view-case',
-                                          'view-profile')))
-        for name in ('app.js', 'slots.js', 'case.js', 'profile.js', 'app.css'):
+                  all(k in body for k in ('view-games', 'view-slots', 'view-case',
+                                          'view-profile')),
+                  '; версия статики:', '?v=dev' not in body)
+        for name in ('app.js', 'slots.js', 'case.js', 'games.js', 'profile.js',
+                     'app.css'):
             async with session.get(base + '/static/' + name) as r:
-                print(f'{name}:', r.status, r.headers.get('Content-Type'))
-        # Без подписи Telegram сервер обязан отказать — и слотам тоже.
+                print(f'{name}:', r.status, r.headers.get('Content-Type'),
+                      r.headers.get('Cache-Control'))
+        # Без подписи Telegram сервер обязан отказать — и играм тоже.
         for path in ('/api/state', '/api/slots/state', '/api/slots/spin',
+                     '/api/games/state', '/api/games/play', '/api/games/step',
                      '/api/profile'):
             async with session.post(base + path, json={}) as r:
                 print(f'{path} без initData:', r.status, await r.text())

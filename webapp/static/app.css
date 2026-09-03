@@ -148,6 +148,27 @@ main { position: relative; z-index: 1; padding: 8px 16px 0; }
   100% { transform: scale(1); }
 }
 
+/* --- плашка ошибки -------------------------------------------------------- */
+/*
+   Отказ сервера должен быть виден сразу: «нажал — ничего не произошло» читается
+   как поломка приложения, даже когда сервер честно ответил «не хватает денег».
+*/
+
+.banner {
+  position: fixed; z-index: 9; left: 10px; right: 10px;
+  top: calc(10px + env(safe-area-inset-top));
+  padding: 11px 14px; border-radius: 14px;
+  font-size: 13px; font-weight: 600; text-align: center;
+  background: rgba(242, 96, 125, .92); color: #fff;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .45);
+  animation: banner-in .22s ease;
+}
+.banner.ok { background: rgba(74, 222, 128, .92); color: #06280f; }
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* --- карточки ------------------------------------------------------------- */
 
 .cards {
@@ -330,7 +351,7 @@ main { padding: 8px 16px 104px; }
 
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   background: rgba(11, 13, 23, .86);
   border-top: 1px solid var(--card-line);
@@ -622,3 +643,190 @@ main { padding: 8px 16px 104px; }
   .stats { grid-template-columns: 1fr; }
 }
 
+
+/* --- экран игр ------------------------------------------------------------ */
+/*
+   Каталог — крупные карточки: в приложении играют одним большим пальцем, и
+   мелкий список тут проигрывает всему остальному экрану.
+*/
+
+.games-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.games-head h1 { margin: 2px 0 4px; font-size: 22px; letter-spacing: -.02em; }
+
+.game-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.game-card {
+  position: relative; display: grid; gap: 2px; justify-items: start;
+  padding: 14px; border: 1px solid var(--card-line); border-radius: 18px;
+  background: var(--card); color: var(--text); font: inherit; text-align: left;
+  transition: transform .12s ease, background .15s ease;
+}
+.game-card:active { transform: scale(.97); background: rgba(255, 255, 255, .08); }
+.game-emoji { font-size: 26px; line-height: 1.1; }
+.game-name { font-size: 15px; font-weight: 700; }
+.game-note { font-size: 11.5px; color: var(--muted); }
+.game-live {
+  position: absolute; top: 10px; right: 10px;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+  background: rgba(74, 222, 128, .18); color: var(--green);
+}
+
+.game-table { display: grid; gap: 12px; }
+.board { display: grid; gap: 10px; }
+.board-head {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; color: var(--muted);
+}
+.board-head b { color: var(--text); }
+.game-actions { display: grid; grid-auto-flow: column; gap: 8px; }
+.game-actions .sub { grid-column: 1 / -1; text-align: center; }
+
+.outcome {
+  display: grid; grid-auto-flow: column; justify-content: center; align-items: baseline;
+  gap: 10px; padding: 12px; border-radius: 16px;
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--card-line);
+}
+.outcome b { font-size: 22px; }
+.outcome span { font-size: 13px; color: var(--muted); }
+.outcome i { font-size: 12px; color: var(--muted); font-style: normal; }
+.outcome.good { border-color: rgba(74, 222, 128, .35); background: rgba(74, 222, 128, .10); }
+.outcome.good b { color: var(--green); }
+.outcome.bad { border-color: rgba(242, 96, 125, .3); background: rgba(242, 96, 125, .08); }
+.outcome.bad b { color: var(--red); }
+
+/* Монетка и внешние ставки рулетки — крупные кнопки выбора. */
+.coin-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pick-card {
+  display: grid; gap: 2px; justify-items: center; padding: 18px 12px;
+  border: 1px solid var(--card-line); border-radius: 20px;
+  background: linear-gradient(160deg, rgba(124, 92, 255, .22), rgba(255, 255, 255, .05));
+  color: var(--text); font: inherit;
+  transition: transform .12s ease;
+}
+.pick-card:active { transform: scale(.96); }
+.pick-emoji { font-size: 34px; }
+.pick-name { font-size: 14px; font-weight: 700; }
+.pick-mult { font-size: 11.5px; color: var(--muted); }
+
+.coin-flip { display: grid; gap: 4px; justify-items: center; padding: 10px 0 2px; }
+.coin-face { font-size: 56px; animation: coin-drop .5s ease; }
+.coin-name { font-size: 17px; font-weight: 700; }
+@keyframes coin-drop {
+  from { transform: translateY(-18px) rotate(-25deg) scale(.8); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.rl-outside { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.pick-chip {
+  display: grid; gap: 1px; padding: 9px 6px; border-radius: 13px;
+  border: 1px solid var(--card-line); background: rgba(255, 255, 255, .06);
+  color: var(--text); font: inherit; font-size: 12px; font-weight: 600;
+}
+.pick-chip i { font-size: 10px; color: var(--muted); font-style: normal; }
+.pick-chip:active { transform: scale(.96); }
+
+.rl-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.wheel-cell {
+  padding: 8px 0; border: 0; border-radius: 10px;
+  font: inherit; font-size: 12.5px; font-weight: 700; color: #fff;
+}
+.wheel-cell.red { background: rgba(214, 58, 74, .85); }
+.wheel-cell.black { background: rgba(28, 30, 46, .95); border: 1px solid var(--card-line); }
+.wheel-cell.zero { background: rgba(31, 125, 90, .9); grid-column: span 7; }
+.wheel-cell:active { transform: scale(.94); }
+
+.rl-result { display: grid; gap: 6px; justify-items: center; padding: 6px 0; }
+.rl-number {
+  display: grid; place-items: center; width: 74px; height: 74px;
+  border-radius: 50%; font-size: 30px; font-weight: 800; color: #fff;
+  animation: coin-drop .45s ease;
+}
+.rl-number.red { background: rgba(214, 58, 74, .9); }
+.rl-number.black { background: rgba(28, 30, 46, .98); border: 1px solid var(--card-line); }
+.rl-number.zero { background: rgba(31, 125, 90, .92); }
+
+/* Мины: поле 5×5. Кнопка клетки — квадратная, чтобы попадать пальцем. */
+.mines-pick { display: grid; gap: 8px; }
+.mine-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.mine-cell {
+  aspect-ratio: 1 / 1; border: 1px solid var(--card-line); border-radius: 14px;
+  background: rgba(255, 255, 255, .05); color: var(--text);
+  font: inherit; font-size: 20px;
+  transition: transform .12s ease, background .2s ease;
+}
+.mine-cell:active { transform: scale(.94); }
+.mine-cell.gem { background: rgba(124, 92, 255, .28); border-color: transparent; }
+.mine-cell.mine { background: rgba(242, 96, 125, .18); opacity: .8; }
+.mine-cell.boom { background: rgba(242, 96, 125, .45); border-color: transparent; }
+.mine-cell:disabled { opacity: .95; }
+
+/* Башня: этажи сверху вниз, текущий подсвечен. */
+.tower { display: grid; gap: 4px; }
+.floor {
+  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 12px;
+  background: rgba(255, 255, 255, .04); font-size: 12.5px; color: var(--muted);
+}
+.floor-no { text-align: center; font-weight: 700; }
+.floor-mult { color: var(--text); }
+.floor.done { background: rgba(74, 222, 128, .14); color: var(--green); }
+.floor.done .floor-mult { color: var(--green); }
+.floor.next { background: rgba(255, 207, 92, .16); color: var(--gold); }
+.floor.next .floor-mult { color: var(--gold); }
+.floor-bad { font-size: 11px; color: var(--red); }
+
+.doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.door {
+  padding: 16px 0; border: 1px solid var(--card-line); border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255, 207, 92, .18), rgba(255, 255, 255, .05));
+  color: var(--text); font: inherit; font-size: 15px; font-weight: 700;
+}
+.door:active { transform: scale(.96); }
+
+/* Краш: одна крупная цифра — она и есть весь экран. */
+.crash-box {
+  display: grid; gap: 6px; justify-items: center; padding: 26px 14px;
+  border-radius: 22px; border: 1px solid var(--card-line);
+  background: linear-gradient(165deg, rgba(124, 92, 255, .20), rgba(255, 255, 255, .04));
+}
+.crash-mult { font-size: 46px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.crash-box .sub { text-align: center; }
+.crash-box.live { border-color: rgba(74, 222, 128, .35); }
+.crash-box.live .crash-mult { color: var(--green); animation: crash-pulse 1s ease-in-out infinite; }
+.crash-box.took .crash-mult { color: var(--green); }
+.crash-box.burst { border-color: rgba(242, 96, 125, .4); background: rgba(242, 96, 125, .10); }
+.crash-box.burst .crash-mult { color: var(--red); }
+@keyframes crash-pulse { 50% { transform: scale(1.04); } }
+
+/* Блэкджек: две руки картами, закрытая карта дилера — рубашкой. */
+.bj-table { display: grid; gap: 12px; }
+.bj-side { display: grid; gap: 6px; }
+.bj-side .cap { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.hand { display: flex; gap: 6px; flex-wrap: wrap; }
+.card {
+  display: grid; place-items: center; min-width: 42px; height: 58px;
+  padding: 0 6px; border-radius: 10px;
+  background: #f4f5fb; color: #14161f;
+  font-size: 17px; font-weight: 700;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .35);
+  animation: card-in .25s ease;
+}
+.card.red { color: #d63a4a; }
+.card.back {
+  background: linear-gradient(150deg, #4b3bb0, #7c5cff);
+  color: rgba(255, 255, 255, .85);
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+.bj-empty { padding: 6px 0; }
+
+/* Кнопка «Забрать»: зелёная, потому что это единственное действие с деньгами. */
+.btn.take {
+  background: linear-gradient(135deg, #4ade80, #22a45d);
+  color: #06280f; font-weight: 800;
+}
+.btn.take.off { opacity: .45; }
+.log-game { font-size: 12px; }
+.log-row { grid-template-columns: 1fr auto auto auto; }

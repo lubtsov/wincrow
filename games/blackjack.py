@@ -130,43 +130,72 @@ async def _show(call: CallbackQuery, rnd: engine.Round, deck: list[int]) -> None
                  _hand_kb(rnd, can_double))
 
 
+# --- правила ----------------------------------------------------------------
+#
+# Ниже — вся развязка раздачи без единого обращения к Telegram: тем же кодом
+# играет и бот, и Mini App (`webapp/games.py`). Правила казино должны лежать в
+# одном месте, иначе два интерфейса однажды разойдутся в выплате.
+
+
+def dealer_draws(rnd: engine.Round, deck: list[int]) -> None:
+    """Дилер добирает по правилу мягкой 17. Меняет состояние раунда.
+
+    Карты берутся только если есть с чем сравнивать: на переборе игрока и на его
+    блэкджеке добор ничего не меняет.
+    """
+    player = _cards(rnd, deck, 'p')
+    if hand_value(player)[0] > 21 or is_blackjack(player):
+        return
+    while rnd.state['cur'] < len(deck):
+        total, soft = hand_value(_cards(rnd, deck, 'd'))
+        if total > DEALER_STAND or (total == DEALER_STAND and not soft):
+            break
+        _draw(rnd, 'd')
+
+
+def outcome(player: list[int], dealer: list[int]) -> tuple[float | None, str]:
+    """(множитель, код исхода) по готовым рукам. None — пуш, ставка вернётся."""
+    p_total = hand_value(player)[0]
+    d_total = hand_value(dealer)[0]
+    p_bj, d_bj = is_blackjack(player), is_blackjack(dealer)
+
+    if p_total > 21:
+        return 0.0, 'bust'
+    if p_bj and d_bj:
+        return None, 'push_bj'
+    if p_bj:
+        return BJ_MULT, 'player_bj'
+    if d_bj:
+        return 0.0, 'dealer_bj'
+    if d_total > 21:
+        return WIN_MULT, 'dealer_bust'
+    if p_total > d_total:
+        return WIN_MULT, 'win'
+    if p_total < d_total:
+        return 0.0, 'lose'
+    return None, 'push'
+
+
 # --- развязка ---------------------------------------------------------------
 
 async def _settle(call: CallbackQuery, rnd: engine.Round, deck: list[int]) -> None:
     """Дилер добирает, руки сравниваются, раунд закрывается."""
-    player = _cards(rnd, deck, 'p')
-    p_total, _ = hand_value(player)
-    p_bj = is_blackjack(player)
+    dealer_draws(rnd, deck)
+    player, dealer = _cards(rnd, deck, 'p'), _cards(rnd, deck, 'd')
+    p_total, d_total = hand_value(player)[0], hand_value(dealer)[0]
+    mult, code = outcome(player, dealer)
 
-    # Дилер берёт карты только если есть с чем сравнивать: на переборе игрока
-    # и на его блэкджеке добор ничего не меняет.
-    if p_total <= 21 and not p_bj:
-        while rnd.state['cur'] < len(deck):
-            total, soft = hand_value(_cards(rnd, deck, 'd'))
-            if total > DEALER_STAND or (total == DEALER_STAND and not soft):
-                break
-            _draw(rnd, 'd')
-
-    dealer = _cards(rnd, deck, 'd')
-    d_total, _ = hand_value(dealer)
-    d_bj = is_blackjack(dealer)
-
-    if p_total > 21:
-        mult, head = 0.0, f'{E.BOOM} <b>Перебор.</b>'
-    elif p_bj and d_bj:
-        mult, head = None, f'{E.DRAW} <b>Блэкджек у обоих.</b>'
-    elif p_bj:
-        mult, head = BJ_MULT, f'{E.CARDS} <b>Блэкджек!</b>'
-    elif d_bj:
-        mult, head = 0.0, f'{E.CARDS} <b>Блэкджек у дилера.</b>'
-    elif d_total > 21:
-        mult, head = WIN_MULT, f'{E.BOOM} <b>Перебор у дилера — ты забираешь.</b>'
-    elif p_total > d_total:
-        mult, head = WIN_MULT, f'{E.OK} <b>{p_total} против {d_total}.</b>'
-    elif p_total < d_total:
-        mult, head = 0.0, f'{E.FAIL} <b>{d_total} у дилера против твоих {p_total}.</b>'
-    else:
-        mult, head = None, f'{E.DRAW} <b>Ничья, у обоих {p_total}.</b>'
+    heads = {
+        'bust': f'{E.BOOM} <b>Перебор.</b>',
+        'push_bj': f'{E.DRAW} <b>Блэкджек у обоих.</b>',
+        'player_bj': f'{E.CARDS} <b>Блэкджек!</b>',
+        'dealer_bj': f'{E.CARDS} <b>Блэкджек у дилера.</b>',
+        'dealer_bust': f'{E.BOOM} <b>Перебор у дилера — ты забираешь.</b>',
+        'win': f'{E.OK} <b>{p_total} против {d_total}.</b>',
+        'lose': f'{E.FAIL} <b>{d_total} у дилера против твоих {p_total}.</b>',
+        'push': f'{E.DRAW} <b>Ничья, у обоих {p_total}.</b>',
+    }
+    head = heads[code]
 
     # mult is None — пуш: ставка возвращается, оборот откатывается.
     if mult is None:

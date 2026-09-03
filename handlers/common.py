@@ -16,14 +16,13 @@ import html
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 import config
 import db
 import emoji as E
 import keyboards as kb
 from db import fmt
-from games import storm
 from games.registry import GAMES
 from ui import is_private, render, render_animation
 
@@ -91,35 +90,31 @@ async def show_menu(event, user, is_admin: bool, tg_user=None):
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, user, is_admin: bool):
     await state.clear()
+    await drop_old_keyboard(message)
     await show_menu(message, user, is_admin)
-    await app_invite(message)
     if user['referer_id']:
         await message.answer(
             'Тебя пригласил игрок — процент с твоих пополнений идёт ему, '
             'на твой баланс это не влияет.')
 
 
-async def app_invite(message: Message) -> None:
-    """Второе сообщение после /start: кнопка снизу, открывающая Mini App.
+async def drop_old_keyboard(message: Message) -> None:
+    """Снимает нижнюю клавиатуру, если она у игрока осталась с прошлых версий.
 
-    Отдельным сообщением, потому что нижнюю клавиатуру нельзя прикрепить к
-    сообщению с гифкой и inline-кнопками — это два разных типа клавиатур, и
-    Telegram позволяет по одной на сообщение.
-
-    Ничего не отправляется, если Mini App не настроен (`WEBAPP_URL` пуст) или
-    дело происходит в группе: web_app-кнопку в reply-клавиатуре Telegram
-    принимает только в личке, а сообщение «открой приложение» без работающей
-    кнопки — мусор в чате.
+    Раньше после /start приезжало второе сообщение с кнопкой «Играть в
+    приложении». Сообщение убрали, но нижняя клавиатура у Telegram живёт в чате,
+    пока её явно не снять, — а снять её можно только вместе с каким-нибудь
+    сообщением. Поэтому служебное сообщение уходит и сразу удаляется: клавиатура
+    исчезает, в переписке ничего не остаётся.
     """
-    markup = kb.app_keyboard()
-    if markup is None or message.chat.type != 'private':
+    if message.chat.type != 'private':
         return
-    await message.answer(
-        f'{E.SLOTS} <b>Казино есть и в приложении</b>\n\n'
-        f'Слоты «{storm.TITLE}» с каскадами, ежедневный кейс и профиль — '
-        f'в одном экране, кнопкой снизу.\n'
-        f'Она не пропадёт: открывай приложение когда захочешь.',
-        reply_markup=markup)
+    try:
+        notice = await message.answer('⌛', reply_markup=ReplyKeyboardRemove())
+        await notice.delete()
+    except Exception:
+        # Не критично: не дали отправить или удалить — меню всё равно приедет.
+        pass
 
 
 @router.message(Command('menu'))

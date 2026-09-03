@@ -129,12 +129,30 @@ window.WC = {
     setTimeout(function () { sheet.hidden = true; }, 220);
   },
 
+  /* --- заметная ошибка ---------------------------------------------------- */
+
+  banner: function (text, kind) {
+    /* Плашка поверх шапки. Нужна потому, что «ничего не произошло» — худшее,
+       что может показать приложение: отказ сервера должен быть виден сразу, а не
+       мелкой строкой где-то внизу экрана. */
+    const box = document.getElementById('banner');
+    if (!box) return;
+    box.className = 'banner ' + (kind || 'bad');
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(WC._bannerTimer);
+    WC._bannerTimer = setTimeout(function () { box.hidden = true; }, 4200);
+  },
+
   /* --- вкладки ---------------------------------------------------------- */
 
   register: function (name, view) { WC.views[name] = view; },
 
   tab: function (name) {
     if (!WC.views[name]) return;
+    // Уходящий экран может держать таймеры (живой множитель краша) — гасим.
+    const leaving = WC.active && WC.active !== name && WC.views[WC.active];
+    if (leaving && leaving.leave) leaving.leave();
     WC.active = name;
     Object.keys(WC.views).forEach(function (key) {
       document.getElementById('view-' + key).hidden = key !== name;

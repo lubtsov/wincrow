@@ -220,6 +220,7 @@
   function fail(err) {
     stopTimer();
     el.panel.innerHTML = WC.tile('Не вышло', WC.errorText(err), 'error');
+    WC.banner(WC.errorText(err));
   }
 
   async function open() {

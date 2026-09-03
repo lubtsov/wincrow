@@ -37,6 +37,7 @@ from ui import ChatCall, render
 from . import balance as balance_h
 from . import chats as chats_h
 from . import common
+from . import daily as daily_h
 from . import games as games_h
 
 router = Router(name='chat')
@@ -87,6 +88,7 @@ CMD_WORDS = {
     'refs': 'refs',
     'чаты': 'mychats', 'chats': 'mychats', 'мойчат': 'mychats',
     'игры': 'games', 'игра': 'games', 'games': 'games',
+    'кейс': 'case', 'case': 'case', 'бонус': 'case', 'подарок': 'case',
     'помощь': 'help', 'хелп': 'help', 'help': 'help', 'команды': 'help',
     'код': 'code', 'промокод': 'code', 'promo': 'code',
     'история': 'history', 'history': 'history',
@@ -332,6 +334,11 @@ async def _run_cmd(message: Message, user, is_admin: bool, state: FSMContext,
     elif key == 'games':
         await games_h.show_catalog(message)
 
+    elif key == 'case':
+        # Кейс не зависит от чата: он привязан к игроку, а не к месту, откуда
+        # его открыли. В группе экран тот же, только без web_app-кнопок.
+        await daily_h.show_case(message, user)
+
     elif key == 'help':
         await render(message, chat_help_text(), kb.chat_help_menu())
 
@@ -385,6 +392,7 @@ def chat_help_text() -> str:
         f'<b>{E.CARD} Касса и профиль</b>\n'
         f'<code>деп 5</code> · <code>вывод 5</code> · <code>баланс</code> · '
         f'<code>ставка 2</code>\n'
+        f'<code>кейс</code> — ежедневный подарок, работает и в чате\n'
         f'<code>профиль</code> · <code>топ</code> · <code>реф</code> · '
         f'<code>чаты</code> · <code>история</code> · <code>код XXX</code> · '
         f'<code>меню</code>\n\n'
