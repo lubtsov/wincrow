@@ -21,6 +21,17 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* Атрибут `hidden` — единственный способ, которым скрипты убирают элементы с
+   экрана (экраны `.view`, нижний лист, крупный выигрыш, каталог игр, полоса
+   ставки). Правило `[hidden] { display: none }` живёт в таблице браузера, а она
+   слабее авторской: любое `display` ниже в этом файле его перебивало. Из-за
+   этого все четыре экрана показывались одновременно, а `.sheet` и `.bigwin`
+   висели прозрачным слоем на весь экран поверх всего и съедали каждое нажатие —
+   приложение выглядело целым, но не отвечало ни на одну кнопку.
+   `!important` здесь обязателен: у `[hidden]` и у `.view` одинаковая
+   специфичность, и без него побеждало бы правило, которое ниже в файле. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   min-height: 100%;
@@ -803,7 +814,10 @@ main { padding: 8px 16px 104px; }
 .bj-side { display: grid; gap: 6px; }
 .bj-side .cap { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
 .hand { display: flex; gap: 6px; flex-wrap: wrap; }
-.card {
+/* Карта блэкджека живёт только внутри руки, и привязка к `.hand` здесь не для
+   красоты: класс `.card` уже занят карточками кейса, а это правило ниже в файле
+   — без привязки карточки кейса превращались в белые прямоугольники 58px. */
+.hand .card {
   display: grid; place-items: center; min-width: 42px; height: 58px;
   padding: 0 6px; border-radius: 10px;
   background: #f4f5fb; color: #14161f;
@@ -811,8 +825,8 @@ main { padding: 8px 16px 104px; }
   box-shadow: 0 6px 16px rgba(0, 0, 0, .35);
   animation: card-in .25s ease;
 }
-.card.red { color: #d63a4a; }
-.card.back {
+.hand .card.red { color: #d63a4a; }
+.hand .card.back {
   background: linear-gradient(150deg, #4b3bb0, #7c5cff);
   color: rgba(255, 255, 255, .85);
 }
@@ -829,4 +843,7 @@ main { padding: 8px 16px 104px; }
 }
 .btn.take.off { opacity: .45; }
 .log-game { font-size: 12px; }
-.log-row { grid-template-columns: 1fr auto auto auto; }
+/* В журнале игр четыре колонки, в истории спинов — три: без привязки к `#game-log`
+   это правило добавляло слотам пустую четвёртую колонку, и сумма выигрыша
+   перестала прижиматься к правому краю. */
+#game-log .log-row { grid-template-columns: 1fr auto auto auto; }
