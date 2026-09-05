@@ -290,7 +290,7 @@ CREATE TABLE IF NOT EXISTS fishing_bets (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     no           INTEGER NOT NULL,      -- раунд рыбалки
     user_id      INTEGER NOT NULL,
-    pick         TEXT    NOT NULL,      -- 'blue' | 'orange' | 'red' | 'link'
+    pick         TEXT    NOT NULL,      -- рыба или цвет звена: 'blue' | 'grey'
     bet_cents    INTEGER NOT NULL,
     round_id     INTEGER NOT NULL,      -- rounds.id: там ставка и выплата
     multiplier   REAL,                  -- NULL — раунд ещё не посчитан

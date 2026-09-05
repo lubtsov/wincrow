@@ -8,14 +8,29 @@
 перезапуск процесса счёт не сбивает.
 
     0…10 c   ставки открыты, колесо крутится
-    10…16 c  ставки закрыты, на рыб падают прибавки, колесо тормозит
-    16…22 c  результат: рыбу вытягивают, выплаты уже начислены
+    10…16 c  ставки закрыты, иксы рыб открыты, на них падает множитель,
+             колесо тормозит
+    16…22 c  результат: добычу вытягивают, выплаты уже начислены
 
-Позиций для ставки четыре: три рыбы — синяя, оранжевая, красная — и «звено».
-Звеньев на колесе несколько (config.FISHING_LINKS), но ставка на звено одна: она
-выигрывает на любом из них. Иначе не сходится арифметика — чтобы каждое из
-четырёх звеньев платило x1.9, каждому нужна вероятность 0.51, а вместе они
-заняли бы два круга.
+Колесо
+------
+По кругу идёт семь звеньев, рыба, семь звеньев, рыба — и так семь раз: рыбьих
+секторов семь, у синей их четыре, у оранжевой два, у красной один. Всего 56
+секторов. Звенья через одно белые и серые, рыбьи секторы не покрашены.
+
+Позиций для ставки пять: три рыбы и два цвета звена. Рыба платит свой икс этого
+раунда: у синей от ×3 до ×100, у оранжевой до ×200, у красной до ×300 — какой
+именно, открывается вместе с закрытием ставок. Цвет платит
+config.FISHING_SHADE_MULT, а когда колесо встало на рыбу, ставка на цвет
+возвращается: рыбий сектор не белый и не серый, значит цвет в этом раунде не
+играл. Без возврата цвет платил бы 83% против 97% у рыб — обещанные ×1.9 иначе
+не сходятся ни при какой раскладке колеса.
+
+Множитель
+---------
+С вероятностью config.FISHING_DROP_CHANCE на рыб падает множитель от ×2 до ×10
+и умножает их иксы: оранжевая давала ×20, упал ×2 — стала ×40. Достаётся он
+случайной части стаи: иногда одной рыбе, иногда всем трём.
 
 Деньги
 ------
@@ -37,144 +52,220 @@ from games import engine
 
 GAME = 'fishing'
 TITLE = 'Рыбалка'
-LINK = 'link'
 
-# Рыбы: минимальный множитель и прибавки, которые могут на рыбу упасть. Минимумы
-# заданы правилами игры — синяя x3, оранжевая x4, красная x10: чем реже рыба, тем
-# крупнее иксы. Прибавка выбирается из своего списка равновероятно, так что
-# список задаёт и разброс, и среднее.
+# Цвета звеньев — две позиции для ставки. Звенья занимают почти весь круг, и
+# цвет играет каждый раунд: белое и серое делят его ровно поровну.
+WHITE, GREY = 'white', 'grey'
+SHADES = (WHITE, GREY)
+SHADE_TITLES = {WHITE: 'Белое звено', GREY: 'Серое звено'}
+SHADE_EMOJI = {WHITE: '⚪', GREY: '⚫'}
+
+# Рыбы: минимальный и максимальный икс. Больше задавать нечего — лестница иксов,
+# её веса и доля круга выводятся из этих двух чисел. Чем крупнее рыба, тем реже
+# её сектор.
 FISH = (
     {'key': 'blue',   'title': 'Синяя рыба',     'emoji': '🐟',
-     'floor': 3,  'boosts': (1, 2, 2, 3, 4)},
+     'low': 3,  'high': 100},
     {'key': 'orange', 'title': 'Оранжевая рыба', 'emoji': '🐠',
-     'floor': 4,  'boosts': (2, 3, 3, 4, 6)},
+     'low': 4,  'high': 200},
     {'key': 'red',    'title': 'Красная рыба',   'emoji': '🐡',
-     'floor': 10, 'boosts': (4, 6, 8, 12, 28)},
+     'low': 10, 'high': 300},
 )
 FISH_BY_KEY = {spec['key']: spec for spec in FISH}
-PICKS = tuple([spec['key'] for spec in FISH] + [LINK])
+PICKS = tuple([spec['key'] for spec in FISH] + list(SHADES))
 
-# Сколько секторов колеса отдано каждой рыбе. На математику это не влияет: доля
-# круга у рыбы своя, секторы её просто делят. Но одним сектором синяя заняла бы
-# четверть круга, и колесо выглядело бы кривым.
-FISH_SECTORS = {'blue': 3, 'orange': 2, 'red': 1}
+# Сколько секторов на колесе у каждой рыбы. На математику это не влияет: доля
+# круга у рыбы своя, её секторы делят долю поровну. Но одним сектором синяя
+# заняла бы узкую щель, а колесо читается тем лучше, чем чаще на нём попадается
+# частая рыба.
+FISH_SECTORS = {'blue': 4, 'orange': 2, 'red': 1}
+
+# Сколько ступеней в лестнице иксов рыбы, считая минимум и максимум.
+LADDER_STEPS = 7
+
+# Множители, которые падают на рыб: ровно то, что обещано игроку — от ×2 до ×10.
+BOOSTS = tuple(range(2, 11))
+
+# Куда падает множитель: случайное непустое подмножество стаи. Их семь, и каждая
+# рыба входит в четыре — отсюда вероятность, что множитель достанется именно ей.
+DROP_SETS = tuple(
+    tuple(spec['key'] for i, spec in enumerate(FISH) if mask >> i & 1)
+    for mask in range(1, 1 << len(FISH)))
 
 ROUND_SECONDS = (config.FISHING_BET_SECONDS + config.FISHING_SPIN_SECONDS
                  + config.FISHING_RESULT_SECONDS)
 
-# --- множители и колесо -----------------------------------------------------
-#
-# Ставка платит, только если колесо встало на её позицию, поэтому отдача позиции
-# равна p * m. Чтобы ни одна позиция не была выгоднее другой, доля круга берётся
-# обратной множителю:
-#
-#     p_i = (1/m_i) / Σ(1/m_j)   =>   p_i * m_i = 1 / Σ(1/m_j) для любой i
-#
-# Справа — одно число, одинаковое для всех позиций. Это и есть отдача игры.
+# --- иксы рыб ---------------------------------------------------------------
 
 
-def _boost_mean(spec: dict) -> float:
-    return sum(spec['boosts']) / len(spec['boosts'])
+def _ladder(low: int, high: int) -> tuple[int, ...]:
+    """Лестница иксов рыбы: LADDER_STEPS ступеней от low до high.
 
-
-def _rtp_at(drop: float) -> float:
-    """Отдача при такой вероятности прибавки. По drop монотонно растёт."""
-    total = 1.0 / config.FISHING_LINK_MULT
-    for spec in FISH:
-        total += 1.0 / (spec['floor'] + drop * _boost_mean(spec))
-    return 1.0 / total
-
-
-def _solve_drop() -> float:
-    """Как часто должна падать прибавка, чтобы отдача равнялась config.RTP.
-
-    Одних минимумов на 97% не хватает: с x3, x4, x10 и звеном x1.9 выходит 82.7%.
-    Дотягивают отдачу прибавки, и вопрос лишь в том, насколько часто они падают —
-    это одно уравнение с одним неизвестным. Решается делением отрезка, потому что
-    отдача по drop монотонна.
-
-    Поэтому в игре нет ни одной подобранной руками константы: поменяли
-    коэффициент звена в конфиге — частота прибавок подстроилась сама, а отдача
-    осталась прежней.
+    Шаг геометрический, а не одинаковый: лестница читается как ×3, ×5, ×10, ×17,
+    ×31, ×56, ×100, а не «плюс шестнадцать». Края точные — минимум и максимум это
+    то, что обещано игроку.
     """
-    low, high = 0.0, 1.0
-    if _rtp_at(low) >= config.RTP:
-        return low          # даже без прибавок отдача уже не ниже нужной
-    if _rtp_at(high) <= config.RTP:
-        return high         # прибавки на каждой рыбе — и всё равно мало
-    for _ in range(60):
-        mid = (low + high) / 2
-        if _rtp_at(mid) < config.RTP:
-            low = mid
-        else:
-            high = mid
-    return (low + high) / 2
+    ratio = (high / low) ** (1.0 / (LADDER_STEPS - 1))
+    out: list[int] = []
+    for i in range(LADDER_STEPS):
+        value = int(round(low * ratio ** i))
+        out.append(max(value, out[-1] + 1) if out else value)
+    out[0], out[-1] = int(low), int(high)
+    if any(a >= b for a, b in zip(out, out[1:])):
+        raise ValueError(f'лестница иксов не растёт: {out}')
+    return tuple(out)
 
 
-# Вероятность, что на рыбу упадёт прибавка. Считается из RTP, а не задаётся:
-# см. _solve_drop. Крайние случаи (0.0 или 1.0) значат, что с такими минимумами
-# и коэффициентом звена нужной отдачи не получить — это ошибка конфигурации, и
-# её ловит tests/test_fishing.py.
-DROP_CHANCE = _solve_drop()
+def ladder(key: str) -> tuple[int, ...]:
+    """Лестница иксов этой рыбы."""
+    spec = FISH_BY_KEY[key]
+    return _ladder(spec['low'], spec['high'])
+
+
+def _weights(values: tuple[int, ...]) -> tuple[float, ...]:
+    """Вероятности ступеней — обратные их иксам.
+
+    Тогда p * v у всех ступеней одинаково: каждая приносит в кассу столько же,
+    сколько остальные. Поэтому ×3 выпадает часто, ×100 редко, и веса не нужно
+    подбирать руками — их задаёт сама лестница.
+    """
+    total = sum(1.0 / value for value in values)
+    return tuple((1.0 / value) / total for value in values)
+
+
+def _mean(values: tuple[int, ...]) -> float:
+    """Средний икс при таких весах — среднее гармоническое лестницы."""
+    return len(values) / sum(1.0 / value for value in values)
+
+
+def _at(values: tuple[int, ...], roll: float) -> int:
+    """Ступень по числу из потока: в чей вес попал roll, та и выпала."""
+    edge = 0.0
+    for value, weight in zip(values, _weights(values)):
+        edge += weight
+        if roll < edge:
+            return value
+    return values[-1]
+
+
+BOOST_MEAN = _mean(BOOSTS)
+
+
+def drop_share(key: str) -> float:
+    """Вероятность, что в этом раунде множитель упадёт на эту рыбу.
+
+    Сам множитель падает с вероятностью config.FISHING_DROP_CHANCE, а достаётся
+    случайному непустому подмножеству стаи: конкретной рыбе — в четырёх наборах
+    из семи.
+    """
+    hits = sum(1 for target in DROP_SETS if key in target)
+    return config.FISHING_DROP_CHANCE * hits / len(DROP_SETS)
 
 
 def average(key: str) -> float:
-    """Средний множитель позиции — с учётом того, что прибавка падает не всегда."""
-    if key == LINK:
-        return float(config.FISHING_LINK_MULT)
-    spec = FISH_BY_KEY[key]
-    return spec['floor'] + DROP_CHANCE * _boost_mean(spec)
+    """Средний икс позиции — столько она платит, когда колесо встало на неё.
+
+    У рыбы это её лестница, поднятая множителем. Множитель падает не всегда,
+    поэтому лестница умножается на 1 + p * (среднее множителя − 1).
+    """
+    if key in SHADES:
+        return float(config.FISHING_SHADE_MULT)
+    return _mean(ladder(key)) * (1.0 + drop_share(key) * (BOOST_MEAN - 1.0))
+
+
+# --- колесо -----------------------------------------------------------------
+#
+# Ставка платит, только если колесо встало на её сектор, поэтому отдача равна
+# p * m. Иксы рыб заданы правилами игры, значит свободна ровно одна величина —
+# доля круга:
+#
+#     p = RTP / m
+#
+# Поэтому в игре нет ни одной подобранной руками константы: поменяли максимум
+# рыбы, число ступеней или частоту множителей — доля круга подстроилась сама, а
+# отдача осталась равной config.RTP. Остаток круга забирают звенья, и он же даёт
+# кассе маржу: на звене все ставки на рыб проигрывают.
+
+
+def fish_share(key: str) -> float:
+    """Доля круга у рыбы. Выведена из отдачи, а не задана."""
+    return config.RTP / average(key)
+
+
+def links_share() -> float:
+    """Сколько круга осталось звеньям — всё, что не забрали рыбы."""
+    left = 1.0 - sum(fish_share(spec['key']) for spec in FISH)
+    if left <= 0.0:
+        raise ValueError('рыбам не хватает круга: с такими иксами отдача выше '
+                         'RTP ещё до того, как на колесо встали звенья')
+    return left
+
+
+def _fish_order() -> tuple[str, ...]:
+    """В каком порядке рыбы идут по кругу: частые вразбег, редкая посередине.
+
+    Мест семь, у синей из них четыре, у оранжевой два, у красной одно.
+    Раскладываются по наибольшему остатку, а не блоками, поэтому получается
+    синяя, оранжевая, синяя, красная, синяя, оранжевая, синяя — двух одинаковых
+    рыб подряд на колесе нет.
+    """
+    slots = sum(FISH_SECTORS[spec['key']] for spec in FISH)
+    credit = {spec['key']: 0.0 for spec in FISH}
+    out = []
+    for _ in range(slots):
+        for key in credit:
+            credit[key] += FISH_SECTORS[key] / slots
+        key = max(credit, key=lambda k: (credit[k], FISH_SECTORS[k]))
+        credit[key] -= 1.0
+        out.append(key)
+    return tuple(out)
 
 
 def _rim() -> tuple[str, ...]:
-    """Порядок секторов по кругу: звенья вразбег, рыбы между ними.
+    """Порядок секторов по кругу: семь звеньев, рыба, семь звеньев, рыба.
 
-    Звено — самая частая позиция, поэтому звенья расставляются равномерно, а рыбы
-    раскладываются в промежутки между ними по очереди, а не блоками: так рядом не
-    оказывается двух одинаковых рыб и колесо читается с любого места.
+    Цвета идут через одно, и счёт не сбрасывается на рыбе — поэтому чередование
+    не рвётся нигде по кругу. Звеньев 49 на семь рыбьих секторов, число
+    нечётное, так что одного цвета на колесе на одно больше.
     """
-    left = {spec['key']: FISH_SECTORS[spec['key']] for spec in FISH}
-    order = []
-    while any(left.values()):
-        for spec in FISH:
-            if left[spec['key']]:
-                order.append(spec['key'])
-                left[spec['key']] -= 1
-
-    links = max(1, config.FISHING_LINKS)
-    total, out = len(order), []
-    for i in range(links):
-        out.append(LINK)
-        share = total // links + (1 if i < total % links else 0)
-        out.extend(order[:share])
-        order = order[share:]
+    out, step = [], 0
+    for key in _fish_order():
+        for _ in range(max(1, config.FISHING_LINKS_PER_FISH)):
+            out.append(SHADES[step % len(SHADES)])
+            step += 1
+        out.append(key)
     return tuple(out)
 
 
 def _build_sectors() -> list[dict]:
     """Колесо: сектор, его доля круга и угол от метки сверху по часовой.
 
-    Доля позиции делится между её секторами ровно поровну, поэтому ставка на
-    звено выигрывает на любом из четырёх, а вероятность у неё одна.
+    Доля рыбы делится между её секторами поровну, поэтому ставка выигрывает на
+    любом из них, а вероятность у неё одна. Цвета делят круг не по числу
+    звеньев, а по углу: их 25 и 24, поэтому доля цвета делится между своими
+    звеньями поровну, и белое с серым платят одинаково. Разница в ширине звеньев
+    из-за этого — четверть градуса, на глаз её не видно, а вот отдачу она
+    разводила бы на четыре процента.
     """
     rim = _rim()
-    share = {key: (1.0 / average(key)) / rim.count(key) for key in set(rim)}
-    total = sum(share[key] for key in rim)
+    half = links_share() / len(SHADES)
+    share = {spec['key']: fish_share(spec['key']) / rim.count(spec['key'])
+             for spec in FISH}
+    for shade in SHADES:
+        share[shade] = half / rim.count(shade)
     out, angle = [], 0.0
     for index, key in enumerate(rim):
-        width = 360.0 * share[key] / total
-        out.append({'index': index, 'pick': key, 'weight': share[key] / total,
-                    'from': round(angle, 4), 'width': round(width, 4)})
-        angle += width
+        start = round(angle, 4)
+        angle += 360.0 * share[key]
+        # Ширина считается как разница уже округлённых границ, а не округляется
+        # сама: иначе на 56 секторах круг не сходился бы на пару тысячных.
+        end = round(angle, 4) if index < len(rim) - 1 else 360.0
+        out.append({'index': index, 'pick': key, 'weight': share[key],
+                    'from': start, 'width': round(end - start, 4)})
     return out
 
 
 SECTORS = _build_sectors()
-
-
-def rtp() -> float:
-    """Фактическая отдача игры. На всех позициях она одна и та же."""
-    return _rtp_at(DROP_CHANCE)
 
 
 def chance(key: str) -> float:
@@ -182,16 +273,58 @@ def chance(key: str) -> float:
     return sum(s['weight'] for s in SECTORS if s['pick'] == key)
 
 
-def positions(mults: dict | None = None, mine: dict | None = None) -> list[dict]:
+def rtp_of(key: str) -> float:
+    """Фактическая отдача ставки на эту позицию.
+
+    У рыб она равна config.RTP — из неё же выведена их доля круга. У цвета чуть
+    ниже: ×1.9 платит только половина звеньев, зато на рыбе ставка возвращается.
+    Возврат её и держит: без него у цвета выходило бы 83%.
+    """
+    if key in SHADES:
+        return (chance(key) * config.FISHING_SHADE_MULT
+                + sum(chance(spec['key']) for spec in FISH))
+    return chance(key) * average(key)
+
+
+def rtp() -> float:
+    """Отдача колеса — по худшей из позиций, чтобы не обещать лишнего."""
+    return min(rtp_of(key) for key in PICKS)
+
+
+def payout_mult(pick: str, result: dict) -> float:
+    """Чем закончилась ставка на позицию: множитель к ставке.
+
+    Ставка на цвет возвращается, когда колесо встало на рыбу: рыбий сектор не
+    белый и не серый, значит цвет в этом раунде не играл.
+    """
+    if pick == result['pick']:
+        return float(result['mults'][pick])
+    if pick in SHADES and result['pick'] in FISH_BY_KEY:
+        return 1.0
+    return 0.0
+
+
+def positions(mults: dict | None = None, bases: dict | None = None,
+              mine: dict | None = None) -> list[dict]:
     """Позиции для ставки — в том порядке, в каком они стоят на экране."""
-    out = [{'key': spec['key'], 'title': spec['title'], 'emoji': spec['emoji'],
-            'kind': 'fish', 'floor': float(spec['floor'])} for spec in FISH]
-    out.append({'key': LINK, 'title': 'Звено', 'emoji': '🔗', 'kind': 'link',
-                'floor': round(float(config.FISHING_LINK_MULT), 4)})
+    out = []
+    for spec in FISH:
+        steps = ladder(spec['key'])
+        out.append({'key': spec['key'], 'title': spec['title'],
+                    'emoji': spec['emoji'], 'kind': 'fish',
+                    'floor': float(steps[0]), 'top': float(steps[-1]),
+                    'ladder': [float(value) for value in steps]})
+    shade_mult = round(float(config.FISHING_SHADE_MULT), 4)
+    for shade in SHADES:
+        out.append({'key': shade, 'title': SHADE_TITLES[shade],
+                    'emoji': SHADE_EMOJI[shade], 'kind': 'shade',
+                    'floor': shade_mult, 'top': shade_mult, 'ladder': []})
     for item in out:
         item['chance'] = round(chance(item['key']), 4)
-        # До закрытия ставок на экране стоит минимум позиции: множители ещё не
-        # раскрыты. После — то, что реально заплатит.
+        item['rtp'] = round(rtp_of(item['key']), 4)
+        # До закрытия ставок на экране стоит минимум позиции: икс раунда ещё не
+        # раскрыт. base — икс до множителя, mult — то, что реально заплатит.
+        item['base'] = (bases or {}).get(item['key'], item['floor'])
         item['mult'] = (mults or {}).get(item['key'], item['floor'])
         cents = (mine or {}).get(item['key'], 0)
         item['mine_cents'] = cents
@@ -238,9 +371,9 @@ def result_of(no: int, server_seed: str) -> dict:
     """Что выпало в раунде. Однозначно задано его сидом и номером.
 
     Порядок обращений к потоку — часть проверки честности: сектор, смещение
-    внутри сектора, затем по два числа на каждую рыбу (упала ли прибавка и
-    какая). Два числа берутся всегда, даже когда прибавка не упала: так раздачу
-    проще пересчитать руками по раскрытому сиду.
+    внутри сектора, по числу на икс каждой рыбы, затем три числа на множитель —
+    упал ли он, на кого и какой. Эти три берутся всегда, даже когда множитель не
+    упал: так раздачу проще пересчитать руками по раскрытому сиду.
     """
     stream = engine.float_stream(server_seed, f'{GAME}:{no}', 0)
 
@@ -257,28 +390,32 @@ def result_of(no: int, server_seed: str) -> dict:
     # непонятно, что выпало.
     mark = sector['from'] + sector['width'] * (0.2 + 0.6 * next(stream))
 
-    mults, drops = {}, []
-    for spec in FISH:
-        hit, which = next(stream), next(stream)
-        boost = 0
-        if hit < DROP_CHANCE:
-            boost = spec['boosts'][min(int(which * len(spec['boosts'])),
-                                       len(spec['boosts']) - 1)]
-            drops.append({'fish': spec['key'], 'boost': boost})
-        mults[spec['key']] = float(spec['floor'] + boost)
-    mults[LINK] = round(float(config.FISHING_LINK_MULT), 4)
+    # Икс раунда у каждой рыбы — ступень её лестницы.
+    bases = {spec['key']: float(_at(ladder(spec['key']), next(stream)))
+             for spec in FISH}
+
+    mults, drops = dict(bases), []
+    fell, whom, which = next(stream), next(stream), next(stream)
+    if fell < config.FISHING_DROP_CHANCE:
+        boost = _at(BOOSTS, which)
+        for key in DROP_SETS[min(int(whom * len(DROP_SETS)),
+                                 len(DROP_SETS) - 1)]:
+            mults[key] = bases[key] * boost
+            drops.append({'fish': key, 'boost': boost, 'mult': mults[key]})
+    for shade in SHADES:
+        mults[shade] = round(float(config.FISHING_SHADE_MULT), 4)
 
     closes = plan(no)['closes_at']
     for i, drop in enumerate(drops):
-        drop['mult'] = mults[drop['fish']]
-        # Когда прибавку показывать. Время общее для всех, поэтому множители
-        # появляются на всех экранах одновременно.
+        # Когда множитель показывать. Время общее для всех, поэтому на всех
+        # экранах он падает одновременно.
         drop['show_at'] = closes + 0.7 + 1.0 * i
 
     return {'sector': sector['index'], 'pick': sector['pick'],
             # Насколько повернуть колесо, чтобы метка сверху пришлась на mark.
             'angle': round((360.0 - mark) % 360.0, 3),
-            'mult': mults[sector['pick']], 'mults': mults, 'drops': drops}
+            'mult': mults[sector['pick']], 'mults': mults, 'bases': bases,
+            'drops': drops}
 
 # --- хранение и ставки ------------------------------------------------------
 
@@ -397,6 +534,8 @@ async def settle(no: int, now: float | None = None) -> dict | None:
 async def _pay(no: int, result: dict) -> None:
     """Начисляет по ставкам раунда. Уже оплаченные пропускает.
 
+    Сколько платит позиция, решает payout_mult: рыба — свой икс этого раунда,
+    цвет — ×1.9, а когда выпала рыба, ставка на цвет возвращается множителем 1.
     Проигравшие закрываются множителем 0: раунд в rounds должен закрыться так же,
     как выигравший, иначе он висел бы 'active' и его подобрал бы возврат.
     """
@@ -404,7 +543,7 @@ async def _pay(no: int, result: dict) -> None:
         'SELECT id, user_id, pick, round_id FROM fishing_bets '
         'WHERE no = ? AND payout_cents IS NULL ORDER BY id', (no,))).fetchall()
     for bet in rows:
-        mult = result['mult'] if bet['pick'] == result['pick'] else 0.0
+        mult = payout_mult(bet['pick'], result)
         rnd = await engine.load_round(bet['round_id'], bet['user_id'], GAME)
         payout = await engine.finish(rnd, mult) if rnd is not None else None
         if payout is None:
@@ -498,10 +637,10 @@ async def history(user_id: int, limit: int = 10) -> list[dict]:
 async def state(user_id: int, now: float | None = None) -> dict:
     """Всё, что нужно экрану рыбалки. Секреты раскрываются по часам сервера.
 
-    Множители открываются, когда ставки уже закрыты, и это не украшательство:
-    колесо от них не зависит, поэтому рыба с видимым x7 вместо x3 давала бы
-    отдачу 170%. Так же устроены Crazy Time и Ice Fishing — верхний множитель
-    показывают, когда ставить уже нельзя.
+    Иксы рыб открываются, когда ставки уже закрыты, и это не украшательство:
+    колесо от них не зависит, поэтому рыба с видимым ×100 на своей доле круга
+    давала бы отдачу 640%. Так же устроены Crazy Time и Ice Fishing — верхний
+    множитель показывают, когда ставить уже нельзя.
 
     Угол остановки уезжает вместе с множителями, за шесть секунд до неё: клиенту
     нужно куда-то плавно тормозить, а поставить на этот раунд уже нельзя, так что
@@ -532,7 +671,8 @@ async def state(user_id: int, now: float | None = None) -> dict:
         'bet_seconds': config.FISHING_BET_SECONDS,
         'spin_seconds': config.FISHING_SPIN_SECONDS,
         'sectors': SECTORS,
-        'positions': positions(result['mults'] if revealed else None, mine),
+        'positions': positions(result['mults'] if revealed else None,
+                               result['bases'] if revealed else None, mine),
         'drops': result['drops'] if revealed else [],
         'angle': result['angle'] if revealed else None,
         'landed': {'pick': result['pick'], 'sector': result['sector'],
@@ -544,6 +684,10 @@ async def state(user_id: int, now: float | None = None) -> dict:
                  'seed': row['server_seed'] if landed else None},
         'bets': bets(), 'min_bet': config.MIN_BET_CENTS,
         'max_bet': config.MAX_BET_CENTS, 'max_bets': config.FISHING_MAX_BETS,
-        'link_mult': round(float(config.FISHING_LINK_MULT), 4),
+        'shade_mult': round(float(config.FISHING_SHADE_MULT), 4),
+        'links_per_fish': max(1, config.FISHING_LINKS_PER_FISH),
+        'drop_chance': round(float(config.FISHING_DROP_CHANCE), 4),
+        'boosts': [float(value) for value in BOOSTS],
         'rtp': round(rtp(), 4),
+        'rtp_by_pick': {key: round(rtp_of(key), 4) for key in PICKS},
     }

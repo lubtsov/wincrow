@@ -6,8 +6,8 @@
    подкрутить исход в DevTools нечем: его тут не вычисляют.
 
    Что известно когда — тоже решает сервер. Пока идут ставки, на рыбах видны
-   только минимальные иксы; прибавки и угол остановки приезжают в момент
-   закрытия ставок; кто победил — когда колесо встало. */
+   только минимальные иксы; икс раунда, множитель и угол остановки приезжают в
+   момент закрытия ставок; кто победил — когда колесо встало. */
 
 (function () {
   const el = {};
@@ -21,7 +21,7 @@
 
   let spinBase = 0;          // угол колеса на начале текущего раунда
   let shown = null;          // номер раунда, который уже нарисован
-  let drops = {};            // какие прибавки уже показали
+  let drops = {};            // на каких рыбах множитель уже показали
   let caught = false;        // сцену вытягивания уже проиграли
   let scene = 0;             // токен сцены: раунд сменился — старая молчит
   let sending = 0;           // ставок в полёте
@@ -69,6 +69,11 @@
     return found ? found.emoji : '❔';
   }
 
+  function kindOf(key) {
+    const found = posOf(key);
+    return found ? found.kind : 'fish';
+  }
+
   /* --- колесо ------------------------------------------------------------ */
 
   function buildWheel() {
@@ -87,7 +92,10 @@
       mark.dataset.sector = s.index;
       // Подпись стоит по центру своего сектора и повёрнута вместе с ним.
       mark.style.transform = 'rotate(' + (s.from + s.width / 2) + 'deg)';
-      mark.innerHTML = '<span>' + emojiOf(s.pick) + '</span>';
+      // На звеньях вместо эмодзи точка: их 21, и кружки съели бы весь обод.
+      mark.innerHTML = kindOf(s.pick) === 'shade'
+        ? '<span class="fi-dot"></span>'
+        : '<span>' + emojiOf(s.pick) + '</span>';
       el.labels.appendChild(mark);
     });
   }
@@ -142,6 +150,18 @@
     return n === Math.round(n) ? String(n) : n.toFixed(2).replace(/0$/, '');
   }
 
+  function rtpText(data) {
+    /* Отдача у рыб и у цвета немного разная: ×1.9 на половине круга дают чуть
+       меньше, чем доли круга, выведенные из RTP. Пишем размах, а не одно число. */
+    const all = Object.keys(data.rtp_by_pick || {}).map(function (key) {
+      return Math.round(data.rtp_by_pick[key] * 100);
+    });
+    if (!all.length) return Math.round(data.rtp * 100) + '%';
+    const low = Math.min.apply(null, all);
+    const high = Math.max.apply(null, all);
+    return low === high ? low + '%' : low + '–' + high + '%';
+  }
+
   /* --- кадр --------------------------------------------------------------- */
 
   function loop() {
@@ -179,10 +199,10 @@
     }
   }
 
-  /* --- прибавки к иксам --------------------------------------------------- */
+  /* --- множитель на рыбах -------------------------------------------------- */
 
   function fireDrops(t) {
-    /* Сервер присылает прибавки вместе с временем показа (show_at), поэтому
+    /* Сервер присылает множители вместе с временем показа (show_at), поэтому
        падают они у всех игроков в одну и ту же секунду. */
     (st.drops || []).forEach(function (drop) {
       const key = st.no + ':' + drop.fish;
@@ -194,7 +214,7 @@
       const slot = card.querySelector('.fi-mult');
       if (slot) slot.textContent = '×' + fmtMult(drop.mult);
 
-      // Зашли в середине раунда — прибавка уже давно висит, без анимации.
+      // Зашли в середине раунда — множитель уже давно висит, без анимации.
       if (t > drop.show_at + 2.5) return;
 
       card.classList.remove('boom');
@@ -203,7 +223,7 @@
 
       const plus = document.createElement('span');
       plus.className = 'fi-plus';
-      plus.textContent = '+' + fmtMult(drop.boost);
+      plus.textContent = '×' + fmtMult(drop.boost);
       card.appendChild(plus);
       setTimeout(function () {
         if (plus.parentNode) plus.parentNode.removeChild(plus);
@@ -264,11 +284,28 @@
     paintWin();
   }
 
+  function refundOnly() {
+    /* Колесо встало на рыбу, а ставил игрок только на цвет: деньги вернулись,
+       но это не выигрыш, и подписывать его зелёным «+$1.00» нельзя. */
+    return !!st.landed && kindOf(st.landed.pick) === 'fish' && st.bet_cents > 0 &&
+      (st.positions || []).every(function (pos) {
+        return pos.kind === 'shade' || !pos.mine_cents;
+      });
+  }
+
   function paintWin() {
     /* Сумму пишет сервер: расчёт мог приехать и позже начала сцены, поэтому
        строку выигрыша перерисовываем на каждом ответе, пока сцена открыта. */
     if (!caught || !st || el.catch.hidden || !st.landed) return;
-    if (st.win_cents > 0) {
+    if (refundOnly()) {
+      el.wonBox.textContent = 'возврат ' + st.win;
+      el.wonBox.className = 'fi-catch-win back';
+      if (!el.wonBox.dataset.done) {
+        el.wonBox.dataset.done = '1';
+        WC.impact('light');
+        WC.setBalance(st.balance, true);
+      }
+    } else if (st.win_cents > 0) {
       el.wonBox.textContent = '+' + st.win;
       el.wonBox.className = 'fi-catch-win good';
       if (!el.wonBox.dataset.done) {
@@ -324,8 +361,7 @@
       scene++;
       closeCatch();
     }
-    el.sub.textContent = 'Раунд #' + data.no + ' · отдача ' +
-                         Math.round(data.rtp * 100) + '%';
+    el.sub.textContent = 'Раунд #' + data.no + ' · отдача ' + rtpText(data);
     paintPicks();
     paintRibbon();
     paintLog();
@@ -366,7 +402,8 @@
   /* --- позиции, лента, история -------------------------------------------- */
 
   function shortName(pos) {
-    return pos.kind === 'fish' ? pos.title.replace(' рыба', '') : pos.title;
+    return pos.kind === 'fish' ? pos.title.replace(' рыба', '')
+                               : pos.title.replace(' звено', '');
   }
 
   function buildPicks() {
@@ -398,10 +435,10 @@
       card.classList.toggle('has', pos.mine_cents > 0);
       card.querySelector('.fi-mine').textContent =
         pos.mine_cents > 0 ? pos.mine : '';
-      // Иксы уже приехали, но прибавка ещё не упала на экран — держим минимум,
-      // иначе цифра сменится раньше своей анимации.
+      // Икс раунда уже приехал, но множитель ещё не упал на экран — держим то,
+      // что было до него, иначе цифра сменится раньше своей анимации.
       const shownDrop = drops[st.no + ':' + pos.key];
-      const value = (pos.kind === 'fish' && !shownDrop) ? pos.floor : pos.mult;
+      const value = (pos.kind === 'fish' && !shownDrop) ? pos.base : pos.mult;
       card.querySelector('.fi-mult').textContent = '×' + fmtMult(value);
     });
   }
@@ -509,31 +546,48 @@
 
   function rules() {
     const rows = st.positions.map(function (pos) {
-      const top = pos.kind === 'fish'
-        ? 'от ×' + fmtMult(pos.floor) + ' и выше'
+      const pays = pos.kind === 'fish'
+        ? '×' + fmtMult(pos.floor) + '…×' + fmtMult(pos.top)
         : '×' + fmtMult(pos.floor) + ' всегда';
       return '<div class="pay-row"><span class="pay-sym">' + pos.emoji + '</span>' +
              '<span class="pay-name">' + WC.esc(pos.title) + '</span>' +
-             '<span class="pay-nums">' + top + '</span></div>';
+             '<span class="pay-nums">' + pays + ' · отдача ' +
+             Math.round(pos.rtp * 100) + '%</span></div>';
     }).join('');
+    const links = st.sectors.filter(function (s) {
+      return kindOf(s.pick) === 'shade';
+    }).length;
     WC.sheet(
       '<h2>Рыбалка</h2>' +
       '<p class="sub">Раунд один на всех: колесо, таймер и результат у всех ' +
       'игроков одинаковые. Ставки принимаются ' + st.bet_seconds + ' секунд, ' +
       'потом колесо ещё крутится и плавно встаёт на результате.</p>' +
       '<div class="pays">' + rows + '</div>' +
-      '<p class="sub">На колесе ' + st.sectors.length + ' секторов: ' +
-      'звеньев — ' + st.sectors.filter(function (s) { return s.pick === 'link'; }).length +
-      ', и каждое платит ×' + fmtMult(st.link_mult) + '. Чем крупнее рыба, тем ' +
-      'реже её сектор.</p>' +
-      '<p class="sub">Иксы рыб растут прибавками, но открываются они, ' +
-      '<b>когда ставки уже закрыты</b> — иначе колесо и множители вместе давали ' +
-      'бы отдачу больше 100%. Платит тот икс, который стоит на рыбе в момент ' +
+      '<p class="sub">По кругу идёт ' + st.links_per_fish + ' звеньев, рыба, ' +
+      st.links_per_fish + ' звеньев, рыба — всего ' + st.sectors.length +
+      ' секторов, звеньев из них ' + links + '. Белые и серые делят круг ровно ' +
+      'поровну, платит каждое ×' + fmtMult(st.shade_mult) + '. Чем крупнее ' +
+      'рыба, тем уже её сектор.</p>' +
+      '<p class="sub">Выпала рыба — ставки на цвет <b>возвращаются</b>: рыбий ' +
+      'сектор не белый и не серый, значит цвет в этом раунде не играл.</p>' +
+      '<p class="sub">Иксы рыб: ' + st.positions.filter(function (pos) {
+        return pos.kind === 'fish';
+      }).map(function (pos) {
+        return WC.esc(shortName(pos).toLowerCase()) + ' — ×' +
+               pos.ladder.map(fmtMult).join(', ×');
+      }).join('; ') + '. Чем крупнее икс, тем реже он выпадает: вероятность ' +
+      'ступени обратна её иксу, поэтому в кассу все ступени приносят одинаково.</p>' +
+      '<p class="sub">Икс рыбы в каждом раунде свой, и открывается он, ' +
+      '<b>когда ставки уже закрыты</b> — иначе видимый заранее ×100 давал бы ' +
+      'отдачу в разы больше 100%. Тогда же на рыб падает множитель ×' +
+      fmtMult((st.boosts || [2])[0]) + '…×' +
+      fmtMult((st.boosts || [10])[(st.boosts || [10]).length - 1]) +
+      ': он умножает икс той рыбы, на которую упал, и достаться может как одной, ' +
+      'так и всем трём. Платит тот икс, который стоит на рыбе в момент ' +
       'остановки.</p>' +
       '<p class="sub">Ставок за раунд можно сделать до ' + st.max_bets + ', ' +
-      'сразу на несколько позиций. Отдача — ' + Math.round(st.rtp * 100) +
-      '%, одинаковая для каждой позиции. Результат считает сервер по provably ' +
-      'fair: хеш сида раунда — <code>' + WC.esc((st.fair.hash || '').slice(0, 16)) +
+      'сразу на несколько позиций. Результат считает сервер по provably fair: ' +
+      'хеш сида раунда — <code>' + WC.esc((st.fair.hash || '').slice(0, 16)) +
       '…</code>, сам сид открывается после остановки.</p>');
   }
 

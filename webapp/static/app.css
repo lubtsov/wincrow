@@ -19,11 +19,13 @@
   --shadow: 0 18px 40px rgba(0, 0, 0, .45);
 
   /* Рыбалка: цвета секторов колеса. Ими же покрашены карточки ставок, чтобы
-     сектор и позиция читались как одно и то же. */
+     сектор и позиция читались как одно и то же. Белое и серое — это звенья,
+     они занимают почти весь круг; рыбьи секторы яркие и узкие. */
   --fi-blue: #3aa0ff;
   --fi-orange: #ff9f43;
   --fi-red: #f2445f;
-  --fi-link: #2b3350;
+  --fi-white: #eff3ff;
+  --fi-grey: #7e88ab;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -981,6 +983,13 @@ main { padding: 8px 16px 104px; }
   display: block; font-size: 20px; line-height: 1;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .55));
 }
+/* На звеньях эмодзи не рисуем: их 21, и рядами кружков колесо выглядело бы
+   мусорно. Вместо метки — точка в цвет, противоположный цвету сектора. */
+.fi-mark span.fi-dot {
+  top: 11%; width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(18, 22, 40, .45); filter: none;
+}
+.fi-mark.grey span.fi-dot { background: rgba(255, 255, 255, .55); }
 .fi-mark.win span { animation: fi-pop .5s ease infinite alternate; }
 .fi-mark.boom span { animation: fi-boom .8s ease; }
 
@@ -1064,7 +1073,11 @@ main { padding: 8px 16px 104px; }
 }
 .fi-catch-win.good { color: var(--green); }
 .fi-catch-win.bad { font-size: 13.5px; font-weight: 700; }
-.fi-catch-win.good, .fi-catch-win.bad { animation: fi-rise .34s ease; }
+/* Возврат ставки на цвет, когда колесо встало на рыбу: не выигрыш и не мимо. */
+.fi-catch-win.back { font-size: 13.5px; font-weight: 700; color: #bcc6ea; }
+.fi-catch-win.good, .fi-catch-win.bad, .fi-catch-win.back {
+  animation: fi-rise .34s ease;
+}
 
 /* Лента прошлых раундов: чем закончились и с каким множителем. */
 .fi-ribbon {
@@ -1081,14 +1094,17 @@ main { padding: 8px 16px 104px; }
 .fi-was.blue { border-color: rgba(58, 160, 255, .45); }
 .fi-was.orange { border-color: rgba(255, 159, 67, .45); }
 .fi-was.red { border-color: rgba(242, 68, 95, .5); }
+.fi-was.white { border-color: rgba(239, 243, 255, .4); }
+.fi-was.grey { border-color: rgba(126, 136, 171, .55); }
 .fi-none { color: var(--muted); font-size: 12.5px; font-style: normal; }
 
-/* Карточки ставок. Цвет карточки — это цвет её секторов на колесе. */
-.fi-picks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+/* Карточки ставок. Цвет карточки — это цвет её секторов на колесе. Их пять,
+   поэтому карточка узкая: отступы и подписи мельче, чем в остальных играх. */
+.fi-picks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
 .fi-pick {
   position: relative; overflow: hidden;
   display: grid; gap: 1px; justify-items: center;
-  padding: 9px 3px 8px; border-radius: 16px;
+  padding: 8px 2px 7px; border-radius: 14px;
   border: 1px solid var(--card-line); background: var(--card);
   color: var(--text); font: inherit;
   transition: transform .12s ease, border-color .15s ease, box-shadow .2s ease;
@@ -1096,13 +1112,13 @@ main { padding: 8px 16px 104px; }
 .fi-pick:active { transform: scale(.96); }
 .fi-pick[disabled] { opacity: .55; }
 .fi-pick.sending { opacity: .7; }
-.fi-face { font-size: 21px; line-height: 1.15; }
-.fi-name { font-size: 9.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.fi-face { font-size: 19px; line-height: 1.15; }
+.fi-name { font-size: 9px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .fi-mult {
-  font-size: 14.5px; font-weight: 800; line-height: 1.2;
+  font-size: 13.5px; font-weight: 800; line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
-.fi-odds { font-size: 9px; color: var(--muted); opacity: .7; }
+.fi-odds { font-size: 8.5px; color: var(--muted); opacity: .7; }
 .fi-mine {
   margin-top: 2px; padding: 1px 7px; border-radius: 999px;
   background: rgba(255, 207, 92, .16); color: var(--gold);
@@ -1113,11 +1129,13 @@ main { padding: 8px 16px 104px; }
 .fi-pick.blue { background: linear-gradient(180deg, rgba(58, 160, 255, .16), rgba(255, 255, 255, .04)); }
 .fi-pick.orange { background: linear-gradient(180deg, rgba(255, 159, 67, .16), rgba(255, 255, 255, .04)); }
 .fi-pick.red { background: linear-gradient(180deg, rgba(242, 68, 95, .17), rgba(255, 255, 255, .04)); }
-.fi-pick.link { background: linear-gradient(180deg, rgba(122, 136, 190, .18), rgba(255, 255, 255, .04)); }
+.fi-pick.white { background: linear-gradient(180deg, rgba(239, 243, 255, .17), rgba(255, 255, 255, .04)); }
+.fi-pick.grey { background: linear-gradient(180deg, rgba(126, 136, 171, .22), rgba(255, 255, 255, .04)); }
 .fi-pick.blue .fi-mult { color: var(--fi-blue); }
 .fi-pick.orange .fi-mult { color: var(--fi-orange); }
 .fi-pick.red .fi-mult { color: var(--fi-red); }
-.fi-pick.link .fi-mult { color: #bcc6ea; }
+.fi-pick.white .fi-mult { color: #eff3ff; }
+.fi-pick.grey .fi-mult { color: #aeb7d4; }
 
 .fi-pick.has {
   border-color: rgba(255, 207, 92, .7);
