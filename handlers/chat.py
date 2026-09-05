@@ -282,7 +282,8 @@ async def _run_cmd(message: Message, user, is_admin: bool, state: FSMContext,
         await render(message, balance_h.balance_text(user), kb.balance_menu())
 
     elif key == 'profile':
-        await render(message, await common.profile_text(user), kb.back_menu())
+        await render(message, await common.profile_text(user, is_admin),
+                     kb.back_menu())
 
     elif key == 'dep':
         if cents is None:
@@ -318,7 +319,8 @@ async def _run_cmd(message: Message, user, is_admin: bool, state: FSMContext,
                          kb.back_menu())
 
     elif key == 'top':
-        await render(message, await common.top_text(user_id), kb.top_menu())
+        await render(message, await common.top_text(user_id, is_admin),
+                     kb.top_menu())
 
     elif key == 'refs':
         await render(message, await common.refs_text(message.bot, user),

@@ -12,6 +12,8 @@
 потому что клиент его и не сообщает.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -26,7 +28,7 @@ import config
 import daily
 import db
 from db import fmt
-from games import storm
+from games import fishing, storm
 from webapp import games
 
 log = logging.getLogger(__name__)
@@ -225,6 +227,46 @@ async def api_spin(request: web.Request) -> web.Response:
     })
 
 
+async def _fishing_answer(user_id: int, status: str = 'ok') -> web.Response:
+    """Состояние рыбалки плюс баланс. Один и тот же ответ на оба её запроса.
+
+    Отдельного «результата ставки» тут нет намеренно: после ставки клиент
+    получает ровно то же состояние раунда, что и все остальные, — свои ставки в
+    нём уже учтены. Меньше поводов разойтись с сервером.
+    """
+    st = await fishing.state(user_id)
+    row = await db.get_user(user_id)
+    balance = row['balance_cents'] if row is not None else 0
+    st['status'] = status
+    st['balance_cents'] = balance
+    st['balance'] = fmt(balance)
+    return web.json_response(st)
+
+
+async def api_fishing(request: web.Request) -> web.Response:
+    """Живой раунд рыбалки — один и тот же для всех, кто на него смотрит."""
+    _, user = await _auth(request)
+    return await _fishing_answer(user.id)
+
+
+async def api_fishing_bet(request: web.Request) -> web.Response:
+    """Ставка в текущий раунд. Что успело, а что нет — решает сервер."""
+    body, user = await _auth(request)
+    no, pick = body.get('no'), body.get('pick')
+    bet, bet_id = body.get('bet_cents'), body.get('bet_id')
+    if not isinstance(no, int) or isinstance(no, bool) \
+            or not isinstance(pick, str) or not pick \
+            or not isinstance(bet, int) or isinstance(bet, bool) or bet <= 0 \
+            or not isinstance(bet_id, str) or not bet_id:
+        raise _fail(400, 'bad-request')
+
+    _, status = await fishing.place(user.id, no, pick, bet, bet_id)
+    if status == 'ok':
+        log.info('рыбалка: игрок %s раунд %s ставка %s на %s',
+                 user.id, no, bet, pick)
+    return await _fishing_answer(user.id, status)
+
+
 async def api_profile(request: web.Request) -> web.Response:
     """Профиль: те же цифры, что в боте, без единого запроса к Telegram."""
     _, user = await _auth(request)
@@ -237,6 +279,11 @@ async def api_profile(request: web.Request) -> web.Response:
         'WHERE user_id = ?', (user.id,))).fetchone()
     cases = await db.daily_stats(user.id)
     streak = await db.daily_streak(user.id)
+    # «Итог» (получено минус оборот) уезжает только админу: игроку эта цифра
+    # ничего не решает, а на экране висит минусом. Ключа в ответе нет вовсе —
+    # значит и в DevTools его не подсмотреть.
+    net = fmt(row['won_cents'] - row['wagered_cents']) \
+        if await db.is_admin(user.id) else None
     return web.json_response({
         'id': user.id,
         'name': user.first_name or user.username or str(user.id),
@@ -244,7 +291,7 @@ async def api_profile(request: web.Request) -> web.Response:
         'balance_cents': row['balance_cents'], 'balance': fmt(row['balance_cents']),
         'played': await db.games_played(user.id),
         'wagered': fmt(row['wagered_cents']), 'won': fmt(row['won_cents']),
-        'net': fmt(row['won_cents'] - row['wagered_cents']),
+        'net': net,
         'deposited': fmt(row['deposited_cents']),
         'referrals': row['referrals'], 'level': level, 'percent': percent,
         'referral_earned': fmt(row['referral_earned_cents']),
@@ -384,13 +431,41 @@ def build(bot: Bot) -> web.Application:
     app.router.add_post('/api/games/state', api_games)
     app.router.add_post('/api/games/play', api_game_play)
     app.router.add_post('/api/games/step', api_game_step)
+    app.router.add_post('/api/fishing/state', api_fishing)
+    app.router.add_post('/api/fishing/bet', api_fishing_bet)
     app.router.add_post('/api/profile', api_profile)
     app.router.add_get('/static/{name}', static_file)
     return app
 
 
+# Фоновая задача рыбалки. Живёт не через on_startup приложения, а рядом со
+# start()/stop(): раунды должны считаться у боевого сервера, а не у каждого
+# TestServer, который поднимают тесты.
+_ticker: asyncio.Task | None = None
+
+
+async def _fishing_ticker() -> None:
+    """Досчитывает раунды рыбалки, даже когда экран никто не держит открытым.
+
+    Раунд считает и обычный запрос состояния, но полагаться на это нельзя:
+    игрок может поставить и закрыть Telegram, и тогда выплата ждала бы
+    следующего посетителя. Секунды точности хватает с запасом — что выпало,
+    решает сид раунда, а не момент расчёта.
+    """
+    while True:
+        try:
+            await asyncio.sleep(1)
+            await fishing.tick()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception('рыбалка: раунд не рассчитался')
+            await asyncio.sleep(2)
+
+
 async def start(bot: Bot) -> web.AppRunner | None:
     """Поднимает сервер в текущем event loop. None — Mini App выключен."""
+    global _ticker
     if not config.WEBAPP_ENABLED:
         log.info('Mini App выключен (WEBAPP_ENABLED=0)')
         return None
@@ -399,6 +474,7 @@ async def start(bot: Bot) -> web.AppRunner | None:
     await runner.setup()
     site = web.TCPSite(runner, config.WEBAPP_HOST, config.WEBAPP_PORT)
     await site.start()
+    _ticker = asyncio.create_task(_fishing_ticker())
     log.info('Mini App слушает http://%s:%s', config.WEBAPP_HOST,
              config.WEBAPP_PORT)
     if config.WEBAPP_URL:
@@ -412,6 +488,12 @@ async def start(bot: Bot) -> web.AppRunner | None:
 
 async def stop(runner: web.AppRunner | None) -> None:
     """Гасит сервер: дожидается открытых запросов и закрывает сокет."""
+    global _ticker
+    if _ticker is not None:
+        _ticker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _ticker
+        _ticker = None
     if runner is not None:
         await runner.cleanup()
         log.info('Mini App остановлен')

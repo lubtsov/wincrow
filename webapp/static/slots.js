@@ -79,7 +79,9 @@
     for (let c = 0; c < conf.cols; c++) {
       for (let r = 0; r < conf.rows; r++) {
         const cell = cells[c][r];
-        cell.classList.remove('pop', 'hit');
+        cell.classList.remove('pop', 'hit', 'fall', 'land');
+        dropShards(cell);
+        clearShift(cell);
         setCell(cell, grid[c][r]);
         if (drop) {
           cell.classList.remove('drop');
@@ -91,6 +93,25 @@
     }
   }
 
+  function clearShift(cell) {
+    // Каскад двигает клетки инлайновым transform — после него не должно
+    // остаться ни сдвига, ни задержки, ни прозрачности, иначе клетка застынет
+    // мимо сетки или тронется не вовремя.
+    cell.style.transition = '';
+    cell.style.transitionDelay = '';
+    cell.style.transform = '';
+    cell.style.opacity = '';
+  }
+
+  function dropShards(cell) {
+    const bits = cell.querySelectorAll('.shard');
+    Array.prototype.forEach.call(bits, function (bit) {
+      if (bit.parentNode) bit.parentNode.removeChild(bit);
+    });
+    // Цвет взрыва принадлежал прошлому символу — вместе с осколками уходит и он.
+    cell.style.removeProperty('--shard');
+  }
+
   function markWinners(clusters) {
     clusters.forEach(function (cluster) {
       cluster.cells.forEach(function (pair) {
@@ -99,12 +120,64 @@
     });
   }
 
+  // Цвет осколков по символу: взрыв должен читаться как «лопнула вишня», а не
+  // как безымянная вспышка. Ключи — те же, что в games/storm.py SYMBOLS.
+  const SHARD_COLORS = {
+    cherry: '#ff5a7a', lemon: '#ffe066', orange: '#ff9f43', kiwi: '#8ed64a',
+    grape: '#b06cff', melon: '#ff6b8a', star: '#ffcf5c', gem: '#6be3ff',
+  };
+
+  function shards(cell, key) {
+    /* Восемь брызг из центра клетки. Направление считается здесь, а не в CSS:
+       восемь разных векторов правилом не описать, а без разлёта символ не
+       взрывается, а просто исчезает. Цвет уезжает и на саму клетку — им же
+       красятся вспышка и ударная волна. */
+    const color = SHARD_COLORS[key] || 'rgba(255, 207, 92, .95)';
+    const size = cell.offsetWidth || 48;
+    cell.style.setProperty('--shard', color);
+    for (let i = 0; i < 8; i++) {
+      const bit = document.createElement('i');
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.6;
+      const reach = size * (0.7 + Math.random() * 0.6);
+      bit.className = 'shard';
+      bit.style.setProperty('--dx', Math.round(Math.cos(angle) * reach) + 'px');
+      bit.style.setProperty('--dy', Math.round(Math.sin(angle) * reach) + 'px');
+      bit.style.setProperty('--shard', color);
+      bit.style.animationDelay = Math.round(Math.random() * 70) + 'ms';
+      cell.appendChild(bit);
+    }
+    setTimeout(function () { dropShards(cell); }, 700);
+  }
+
+  function clusterWin(cluster) {
+    /* Сумма скопления всплывает над ним: без неё лопнувшие клетки выглядят как
+       подмена поля, и непонятно, что это вообще был выигрыш. */
+    const wrap = el.reels.parentNode;
+    const box = wrap.getBoundingClientRect();
+    let x = 0, y = 0;
+    cluster.cells.forEach(function (pair) {
+      const spot = cells[pair[0]][pair[1]].getBoundingClientRect();
+      x += spot.left + spot.width / 2 - box.left;
+      y += spot.top + spot.height / 2 - box.top;
+    });
+    const tag = document.createElement('b');
+    tag.className = 'cluster-win';
+    tag.textContent = '+' + WC.money(Math.round(cluster.win * bet));
+    tag.style.left = Math.round(x / cluster.cells.length) + 'px';
+    tag.style.top = Math.round(y / cluster.cells.length) + 'px';
+    wrap.appendChild(tag);
+    setTimeout(function () {
+      if (tag.parentNode) tag.parentNode.removeChild(tag);
+    }, 1000);
+  }
+
   function popWinners(clusters) {
     clusters.forEach(function (cluster) {
       cluster.cells.forEach(function (pair) {
         const cell = cells[pair[0]][pair[1]];
         cell.classList.remove('hit');
         cell.classList.add('pop');
+        shards(cell, cluster.symbol);
       });
     });
   }
@@ -144,7 +217,9 @@
       for (let r = 0; r < conf.rows; r++) {
         const cell = cells[c][r];
         setCell(cell, grid[c][r]);
-        cell.classList.remove('drop');
+        cell.classList.remove('drop', 'fall', 'land', 'pop', 'hit');
+        dropShards(cell);
+        clearShift(cell);
         void cell.offsetWidth;
         cell.style.setProperty('--delay', r * 30 + 'ms');
         cell.classList.add('drop');
@@ -174,30 +249,130 @@
   }
 
   /* --- каскады ---------------------------------------------------------- */
+  //
+  // Каскад — не новый спин, а продолжение того же. Поэтому поле целиком здесь
+  // больше не перерисовывается: лопаются только скопления, вниз едут только те
+  // символы, под которыми освободилось место, а сверху досыпаются новые. Клетки
+  // в колонках, где ничего не выиграло, вообще не двигаются — раньше все
+  // тридцать падали заново, и это читалось как «началась новая катка».
+
+  const FALL_MS = 340;                 // должно совпадать с --fall в app.css
+  const COL_STEP = 25;                 // на сколько отстаёт следующая колонка
+
+  function rowPitch() {
+    // Шаг сетки в пикселях: высота клетки плюс зазор. Берётся из живого DOM,
+    // потому что клетка тянется по ширине экрана.
+    const first = cells[0][0];
+    const second = cells[0][1];
+    const pitch = second ? second.offsetTop - first.offsetTop : 0;
+    return pitch || first.offsetHeight || 56;
+  }
+
+  function fallPlan(step, next) {
+    /* Кто куда переезжает после того, как скопления лопнули.
+
+       Правила падения те же, что в games/storm.py collapse(): выжившие
+       сохраняют порядок и оседают вниз, недостача досыпается сверху. Значит
+       символ из строки r съезжает вниз на столько клеток, сколько под ним
+       лопнуло, а новые занимают верхние строки и падают на всю высоту дырки. */
+    const gone = [];
+    for (let c = 0; c < conf.cols; c++) gone.push([]);
+    step.clusters.forEach(function (cluster) {
+      cluster.cells.forEach(function (pair) { gone[pair[0]].push(pair[1]); });
+    });
+
+    const moves = [];
+    for (let c = 0; c < conf.cols; c++) {
+      const dead = gone[c];
+      if (!dead.length) continue;                 // колонка стоит на месте
+      for (let r = conf.rows - 1; r >= 0; r--) {
+        if (dead.indexOf(r) >= 0) continue;
+        let below = 0;
+        for (let k = 0; k < dead.length; k++) if (dead[k] > r) below++;
+        if (below) {
+          moves.push({ col: c, row: r + below, key: step.grid[c][r],
+                       from: below, fresh: false });
+        }
+      }
+      for (let j = 0; j < dead.length; j++) {
+        moves.push({ col: c, row: j, key: next[c][j],
+                     from: dead.length, fresh: true });
+      }
+    }
+    return moves;
+  }
+
+  async function dropIn(step, next) {
+    const moves = fallPlan(step, next);
+    if (!moves.length) return;
+    const pitch = rowPitch();
+
+    // Первый кадр: символы уже на новых местах, но сдвинуты туда, откуда падают.
+    // Прозрачность не трогаем: новые должны выезжать из-за верхнего края поля, а
+    // не проявляться на месте — проявление и читалось как подмена поля.
+    moves.forEach(function (move) {
+      const cell = cells[move.col][move.row];
+      cell.classList.remove('pop', 'hit', 'drop', 'fall', 'land');
+      dropShards(cell);
+      setCell(cell, move.key);
+      cell.style.transition = 'none';
+      cell.style.transform = 'translateY(' + (-move.from * pitch) + 'px)';
+    });
+    void el.reels.offsetWidth;                    // фиксируем стартовое положение
+
+    // Второй кадр: отпускаем — колонка едет вниз одним движением. Колонки
+    // трогаются друг за другом: одновременный старт всех шести выглядит как
+    // подмена поля, а не как осыпание.
+    moves.forEach(function (move) {
+      const cell = cells[move.col][move.row];
+      cell.style.transition = '';
+      cell.style.transitionDelay = (move.col * COL_STEP) + 'ms';
+      cell.classList.add('fall');
+      cell.style.transform = '';
+    });
+
+    // Приземление: символ приседает от удара — каждая колонка в свой момент.
+    moves.forEach(function (move) {
+      const cell = cells[move.col][move.row];
+      setTimeout(function () {
+        cell.classList.remove('fall');
+        cell.style.transitionDelay = '';
+        cell.classList.add('land');
+        setTimeout(function () { cell.classList.remove('land'); }, 210);
+      }, FALL_MS + move.col * COL_STEP + 20);
+    });
+    await WC.wait(FALL_MS + COL_STEP * (conf.cols - 1) + 110);
+  }
 
   async function playCascades(spin) {
     let won = 0;
+    if (!spin.steps.length) {
+      paint(spin.grid, false);
+      return won;
+    }
     for (let i = 0; i < spin.steps.length; i++) {
       const step = spin.steps[i];
-      paint(step.grid, i > 0);
-      await WC.wait(i ? 260 : 120);
-
+      // Сетка шага уже на экране: её посадил landReels (первый шаг) или
+      // предыдущий dropIn. Перерисовывать нечего.
       markWinners(step.clusters);
+      step.clusters.forEach(clusterWin);
       flash(step.win >= 5 ? 'strong' : '');
       WC.impact('medium');
       won += step.win;
       showBadge(WC.money(Math.round(won * bet)) +
                 (spin.steps.length > 1 ? '  ·  каскад ' + (i + 1) : ''), 'live');
-      await WC.wait(520);
+      await WC.wait(440);                         // подсветка и сумма читаются
 
       popWinners(step.clusters);
-      await WC.wait(260);
+      WC.impact('heavy');
+      await WC.wait(360);                         // взрыв доигрывает до конца
 
       const next = spin.steps[i + 1] ? spin.steps[i + 1].grid : spin.grid;
-      paint(next, true);
-      await WC.wait(300);
+      await dropIn(step, next);
     }
-    if (!spin.steps.length) paint(spin.grid, false);
+    // Страховка: на экране должно стоять ровно то поле, которое посчитал
+    // сервер, — по нему же ищутся штормы. Без анимации, это не кадр.
+    paint(spin.grid, false);
     return won;
   }
 

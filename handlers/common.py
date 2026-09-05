@@ -132,7 +132,14 @@ async def cb_menu(call: CallbackQuery, state: FSMContext, user, is_admin: bool):
 
 # --- профиль ----------------------------------------------------------------
 
-async def profile_text(user) -> str:
+async def profile_text(user, is_admin: bool = False) -> str:
+    """Профиль игрока.
+
+    «Итог» (получено минус оборот) видит только админ: игроку эта строка
+    показывает его же минус в лицо и ничего не даёт, а балансом и оборотом он
+    и так распоряжается. Для админа она остаётся — по ней читается, кто в
+    плюсе.
+    """
     played = await db.games_played(user['user_id'])
     level, percent = db.referral_level(user['referrals'])
     net = user['won_cents'] - user['wagered_cents']
@@ -145,16 +152,16 @@ async def profile_text(user) -> str:
             f'Сыграно игр: <b>{played}</b>\n'
             f'{E.STATS} Оборот: <b>{fmt(user["wagered_cents"])}</b>\n'
             f'Получено: {fmt(user["won_cents"])}\n'
-            f'Итог: <b>{fmt(net)}</b>\n\n'
-            f'Пополнено: {fmt(user["deposited_cents"])}\n'
+            + (f'Итог: <b>{fmt(net)}</b>\n' if is_admin else '') +
+            f'\nПополнено: {fmt(user["deposited_cents"])}\n'
             f'Друзей: {user["referrals"]} · уровень {level} ({percent}%)\n'
             f'С рефералов: {fmt(user["referral_earned_cents"])}\n'
             f'С чатов: {fmt(user["chat_earned_cents"])}')
 
 
 @router.callback_query(F.data == 'profile')
-async def cb_profile(call: CallbackQuery, user):
-    await render(call, await profile_text(user), kb.back_menu())
+async def cb_profile(call: CallbackQuery, user, is_admin: bool):
+    await render(call, await profile_text(user, is_admin), kb.back_menu())
     await call.answer()
 
 
@@ -163,7 +170,8 @@ async def cb_profile(call: CallbackQuery, user):
 MEDALS = E.MEDALS
 
 
-async def top_text(viewer_id: int | None = None) -> str:
+async def top_text(viewer_id: int | None = None,
+                   is_admin: bool = False) -> str:
     rows = await db.top_players(10)
     if not rows:
         return (f'{E.STATS_TOP} <b>ТОП-10</b>\n\nПока никто не сыграл ни '
@@ -176,8 +184,11 @@ async def top_text(viewer_id: int | None = None) -> str:
             else f'ID {r["user_id"]}'
         if r['user_id'] == viewer_id:
             nick = f'<b>{nick} — это ты</b>'
-        lines.append(f'{mark} {nick}\n     оборот {fmt(r["wagered_cents"])} · '
-                     f'итог {fmt(r["net"])}')
+        # Чужой «итог» — не дело игрока: в списке остаётся оборот, по которому
+        # и считается место. Админу итог показываем, ему он нужен.
+        tail = f' · итог {fmt(r["net"])}' if is_admin else ''
+        lines.append(f'{mark} {nick}\n     оборот {fmt(r["wagered_cents"])}'
+                     f'{tail}')
 
     return (f'{E.STATS_TOP} <b>ТОП-10 по обороту</b>\n\n' +
             '\n'.join(lines) +
@@ -186,9 +197,10 @@ async def top_text(viewer_id: int | None = None) -> str:
 
 
 @router.callback_query(F.data == 'top')
-async def cb_top(call: CallbackQuery, state: FSMContext, user):
+async def cb_top(call: CallbackQuery, state: FSMContext, user, is_admin: bool):
     await state.clear()
-    await render(call, await top_text(user['user_id']), kb.top_menu())
+    await render(call, await top_text(user['user_id'], is_admin),
+                 kb.top_menu())
     await call.answer()
 
 

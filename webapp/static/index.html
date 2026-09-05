@@ -102,11 +102,63 @@
       <div class="log" id="game-log"><p class="empty">Пока пусто.</p></div>
     </div>
   </section>
+
+  <!-- Рыбалка: колесо крутится само, раунд один на всех -->
+  <section class="view" id="view-fish" hidden>
+    <div class="fi-head">
+      <div>
+        <h1>Рыбалка</h1>
+        <p class="sub" id="fi-sub">Ищем прорубь…</p>
+      </div>
+      <button class="chip ghost" id="fi-rules" type="button">Правила</button>
+    </div>
+
+    <div class="fi-stage">
+      <div class="fi-wheel-box">
+        <div class="fi-wheel" id="fi-wheel">
+          <div class="fi-rim" id="fi-rim"></div>
+          <div class="fi-labels" id="fi-labels"></div>
+        </div>
+        <div class="fi-pin"></div>
+        <div class="fi-hub">
+          <b class="fi-clock" id="fi-clock">--</b>
+          <span class="fi-state" id="fi-state">ждём раунд</span>
+        </div>
+      </div>
+      <div class="fi-catch" id="fi-catch" hidden>
+        <div class="fi-rod">🎣</div>
+        <div class="fi-line" id="fi-line"></div>
+        <div class="fi-hooked" id="fi-hooked">🐟</div>
+        <div class="fi-hole"></div>
+        <b class="fi-catch-cap" id="fi-catch-cap"></b>
+        <b class="fi-catch-win" id="fi-catch-win"></b>
+      </div>
+    </div>
+
+    <div class="fi-ribbon" id="fi-ribbon"></div>
+    <div class="fi-picks" id="fi-picks"></div>
+
+    <div class="bet-bar">
+      <button class="step" id="fi-bet-minus" type="button" aria-label="Меньше">−</button>
+      <div class="bet-value">
+        <span class="cap">Ставка</span>
+        <b id="fi-bet-label">$0.10</b>
+      </div>
+      <button class="step" id="fi-bet-plus" type="button" aria-label="Больше">+</button>
+    </div>
+    <div class="chips" id="fi-chips"></div>
+
+    <div class="tile">
+      <h2>Мои ставки</h2>
+      <div class="log" id="fi-log"><p class="empty">Пока ни одной ставки.</p></div>
+    </div>
+  </section>
 </main>
 
 <nav class="tabs" id="tabs">
   <button type="button" data-tab="games"><span class="ic">🎮</span>Игры</button>
   <button type="button" data-tab="slots"><span class="ic">🎰</span>Слоты</button>
+  <button type="button" data-tab="fish"><span class="ic">🎣</span>Рыбалка</button>
   <button type="button" data-tab="case"><span class="ic">🎁</span>Кейс</button>
   <button type="button" data-tab="profile"><span class="ic">👤</span>Профиль</button>
 </nav>
@@ -127,6 +179,7 @@
 <script src="/static/case.js?v=dev"></script>
 <script src="/static/slots.js?v=dev"></script>
 <script src="/static/games.js?v=dev"></script>
+<script src="/static/fishing.js?v=dev"></script>
 <script src="/static/profile.js?v=dev"></script>
 <script>WC.boot();</script>
 </body>

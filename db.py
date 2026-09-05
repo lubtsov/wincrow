@@ -264,6 +264,42 @@ CREATE TABLE IF NOT EXISTS required_channels (
     added_by   INTEGER NOT NULL,
     added_at   INTEGER NOT NULL
 );
+
+-- Рыбалка: раунд один на всех, поэтому у него своя таблица, а не строка на
+-- игрока. Номер раунда (no) считается из времени в games/fishing.py, он же
+-- первичный ключ — два одновременных запроса создадут раунд один раз.
+--
+-- Сид пишется при создании раунда и больше не меняется: из него выводятся и
+-- сектор остановки, и множители рыб. Поэтому результат восстановим, даже если
+-- процесс убили посреди раунда, а клиенту до расчёта уезжает только его sha256.
+CREATE TABLE IF NOT EXISTS fishing_rounds (
+    no               INTEGER PRIMARY KEY,   -- номер раунда = int(time // длина)
+    server_seed      TEXT    NOT NULL,
+    server_seed_hash TEXT    NOT NULL,
+    status           TEXT    NOT NULL,      -- 'live' | 'done'
+    result           TEXT,                  -- JSON: сектор, угол, множители
+    started_at       INTEGER NOT NULL,
+    settled_at       INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fishing_live ON fishing_rounds(status, no);
+
+-- Ставка в раунде рыбалки. Деньги живут не здесь: на каждую ставку заводится
+-- обычный раунд в rounds (engine.start_round снимает, engine.finish платит), а
+-- эта строка только связывает его с номером раунда и выбранной позицией.
+CREATE TABLE IF NOT EXISTS fishing_bets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    no           INTEGER NOT NULL,      -- раунд рыбалки
+    user_id      INTEGER NOT NULL,
+    pick         TEXT    NOT NULL,      -- 'blue' | 'orange' | 'red' | 'link'
+    bet_cents    INTEGER NOT NULL,
+    round_id     INTEGER NOT NULL,      -- rounds.id: там ставка и выплата
+    multiplier   REAL,                  -- NULL — раунд ещё не посчитан
+    payout_cents INTEGER,
+    created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fishing_bets_round ON fishing_bets(no, id);
+CREATE INDEX IF NOT EXISTS idx_fishing_bets_user ON fishing_bets(user_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fishing_bets_src ON fishing_bets(round_id);
 """
 
 # Колонки, появившиеся после первого релиза. CREATE TABLE IF NOT EXISTS уже

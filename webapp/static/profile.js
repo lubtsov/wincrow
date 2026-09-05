@@ -12,7 +12,9 @@
 
   function render(p) {
     const nick = p.username ? '@' + p.username : 'ID ' + p.id;
-    const net = String(p.net).charAt(0) === '-' ? 'bad' : 'good';
+    // «Итог» сервер присылает только админу — у игрока поля просто нет.
+    const net = p.net === null || p.net === undefined ? '' :
+      stat('Итог', p.net, String(p.net).charAt(0) === '-' ? 'bad' : 'good');
     return (
       '<div class="tile profile-head">' +
         '<div class="ava-big">' + WC.esc((p.name || '?').slice(0, 1).toUpperCase()) + '</div>' +
@@ -26,7 +28,7 @@
         stat('Сыграно', p.played) +
         stat('Оборот', p.wagered) +
         stat('Получено', p.won) +
-        stat('Итог', p.net, net) +
+        net +
       '</div>' +
 
       '<div class="tile"><h2>🎁 Кейсы</h2><p>Открыто: <b>' + p.cases.opened +

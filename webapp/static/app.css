@@ -17,6 +17,13 @@
   --violet: #7c5cff;
   --radius: 20px;
   --shadow: 0 18px 40px rgba(0, 0, 0, .45);
+
+  /* Рыбалка: цвета секторов колеса. Ими же покрашены карточки ставок, чтобы
+     сектор и позиция читались как одно и то же. */
+  --fi-blue: #3aa0ff;
+  --fi-orange: #ff9f43;
+  --fi-red: #f2445f;
+  --fi-link: #2b3350;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -362,7 +369,7 @@ main { padding: 8px 16px 104px; }
 
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   background: rgba(11, 13, 23, .86);
   border-top: 1px solid var(--card-line);
@@ -444,10 +451,96 @@ main { padding: 8px 16px 104px; }
   from { transform: scale(1); }
   to { transform: scale(1.08); }
 }
-.cell.pop .sym { animation: popOut .26s ease forwards; }
+
+/* Символ лопается: раздувается, вспыхивает и разлетается осколками, а клетка
+   гаснет до пустой — именно эта дырка сейчас поедет вниз. Взрыв обязан дожить
+   до конца: пока падение начиналось раньше, чем он заканчивался, каскад читался
+   как «начался новый спин», а не как выигрыш. */
+.cell.pop {
+  background: rgba(255, 255, 255, .02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+  transition: background .22s ease, box-shadow .22s ease;
+  z-index: 3;
+}
+.cell.pop .sym { animation: popOut .34s cubic-bezier(.3, .9, .35, 1) forwards; }
 @keyframes popOut {
-  40% { transform: scale(1.35) rotate(6deg); }
-  100% { transform: scale(0) rotate(30deg); opacity: 0; }
+  0% { transform: scale(1); }
+  30% { transform: scale(1.45) rotate(-7deg); filter: brightness(1.7) saturate(1.5); }
+  100% { transform: scale(.1) rotate(22deg); opacity: 0; filter: brightness(2.2); }
+}
+.cell.pop .mult { animation: popOut .34s ease forwards; }
+/* Вспышка на месте символа: цвет берётся от самого символа (slots.js кладёт его
+   в --shard), иначе любой взрыв выглядит одинаково жёлтым. */
+.cell.pop::after {
+  content: ''; position: absolute; inset: -4px; border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, .95) 12%,
+                              var(--shard, rgba(255, 207, 92, .9)) 46%,
+                              transparent 74%);
+  animation: popSpark .42s ease-out forwards;
+}
+@keyframes popSpark {
+  from { opacity: 1; transform: scale(.4); }
+  to { opacity: 0; transform: scale(1.7); }
+}
+/* Ударная волна: кольцо расходится за пределы клетки. */
+.cell.pop::before {
+  content: ''; position: absolute; inset: 4px; border-radius: 50%;
+  border: 2.5px solid var(--shard, rgba(255, 236, 186, .9)); pointer-events: none;
+  filter: drop-shadow(0 0 7px var(--shard, rgba(255, 236, 186, .7)));
+  animation: popRing .44s ease-out forwards;
+}
+@keyframes popRing {
+  from { opacity: 1; transform: scale(.3); }
+  to { opacity: 0; transform: scale(2.35); }
+}
+/* Осколки взрыва. Направление каждого задаёт slots.js в --dx/--dy: в CSS восемь
+   разных векторов не описать, а без разлёта символ не взрывается, а исчезает. */
+.shard {
+  position: absolute; left: 50%; top: 50%;
+  width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  border-radius: 50%; pointer-events: none; z-index: 4;
+  background: radial-gradient(circle, #fff 10%,
+                              var(--shard, rgba(255, 207, 92, .95)) 45%,
+                              transparent 72%);
+  box-shadow: 0 0 10px var(--shard, rgba(255, 207, 92, .8));
+  animation: shardFly .52s cubic-bezier(.18, .72, .28, 1) forwards;
+}
+@keyframes shardFly {
+  from { opacity: 1; transform: translate(0, 0) scale(1); }
+  to { opacity: 0; transform: translate(var(--dx, 0), var(--dy, 0)) scale(.25); }
+}
+/* Сумма скопления всплывает над ним: видно, что это выигрыш, а не просто
+   мигнувшие клетки. */
+.cluster-win {
+  position: absolute; z-index: 5; pointer-events: none;
+  transform: translate(-50%, -50%);
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: #241900; background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  animation: clusterWin 1s ease-out forwards;
+}
+@keyframes clusterWin {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(.6); }
+  22% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  70% { opacity: 1; transform: translate(-50%, -78%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -110%) scale(.94); }
+}
+
+/* Падение внутри каскада: клетка едет из позиции, заданной инлайновым
+   transform, на своё место. Переход, а не keyframes, потому что расстояние у
+   каждой клетки своё и считается в пикселях (slots.js, dropIn). Кривая с
+   разгоном к концу — это гравитация, а удар о нижние символы отдан `.land`. */
+.cell.fall {
+  transition: transform var(--fall, 340ms) cubic-bezier(.33, 0, .62, .72);
+  will-change: transform;
+}
+.cell.land .sym { animation: landSquash .2s ease-out; }
+@keyframes landSquash {
+  0% { transform: scale(1.14, .8); }
+  55% { transform: scale(.96, 1.06); }
+  100% { transform: none; }
 }
 .cell.drop { animation: fallIn .32s var(--delay, 0ms) both cubic-bezier(.3, 1.4, .5, 1); }
 @keyframes fallIn {
@@ -847,3 +940,239 @@ main { padding: 8px 16px 104px; }
    это правило добавляло слотам пустую четвёртую колонку, и сумма выигрыша
    перестала прижиматься к правому краю. */
 #game-log .log-row { grid-template-columns: 1fr auto auto auto; }
+
+/* --- рыбалка -------------------------------------------------------------- */
+
+/* Колесо вращает один transform на `.fi-wheel`: секторы нарисованы одним
+   conic-gradient на `.fi-rim`, поэтому кадр не перерисовывает ничего, кроме
+   угла. Угол считает JS от серверного времени — CSS-переходов на нём нет
+   специально: любой transition тут превратился бы в рывок на стыке раундов. */
+
+.fi-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.fi-head h1 { margin: 2px 0 4px; font-size: 22px; letter-spacing: -.02em; }
+
+.fi-stage { position: relative; }
+.fi-wheel-box {
+  position: relative; margin: 2px auto 0;
+  width: min(78vw, 320px); height: min(78vw, 320px);
+}
+.fi-wheel {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  will-change: transform;
+}
+.fi-rim {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, .08),
+              inset 0 0 34px rgba(0, 0, 0, .45),
+              0 18px 40px rgba(0, 0, 0, .5);
+  transition: filter .3s ease;
+}
+.fi-wheel-box.shut .fi-rim { filter: saturate(.8) brightness(.9); }
+.fi-wheel-box.landed .fi-rim { filter: none; }
+
+.fi-labels { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+.fi-mark {
+  position: absolute; left: 50%; top: 0; width: 0; height: 50%;
+  transform-origin: 50% 100%;          /* поворот вокруг центра колеса */
+}
+.fi-mark span {
+  position: absolute; left: 50%; top: 9%; transform: translateX(-50%);
+  display: block; font-size: 20px; line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .55));
+}
+.fi-mark.win span { animation: fi-pop .5s ease infinite alternate; }
+.fi-mark.boom span { animation: fi-boom .8s ease; }
+
+.fi-pin {
+  position: absolute; left: 50%; top: -7px; z-index: 4;
+  width: 0; height: 0; transform: translateX(-50%);
+  border-left: 11px solid transparent; border-right: 11px solid transparent;
+  border-top: 21px solid var(--gold);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .6));
+}
+.fi-hub {
+  position: absolute; left: 50%; top: 50%; z-index: 3;
+  width: 41%; height: 41%; transform: translate(-50%, -50%);
+  display: grid; place-items: center; border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, #1b2138, #0b0d17 72%);
+  border: 1px solid var(--card-line);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .55);
+}
+.fi-clock {
+  font-size: 27px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.fi-clock.hot { color: var(--red); animation: fi-beat .6s ease infinite; }
+.fi-state {
+  margin-top: 3px; font-size: 9px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* Сцена вытягивания. Она поверх колеса, а не рядом: результат должен
+   оказаться там, куда игрок и так смотрит. */
+.fi-catch {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 8;
+  border-radius: var(--radius); overflow: hidden;
+  background: radial-gradient(circle at 50% 80%, rgba(10, 26, 56, .93),
+                              rgba(11, 13, 23, .97) 72%);
+  opacity: 0; transition: opacity .28s ease;
+}
+.fi-catch.on { opacity: 1; }
+.fi-rod {
+  position: absolute; left: 50%; top: 3%; font-size: 34px; line-height: 1;
+  transform: translateX(-50%) rotate(-10deg);
+}
+.fi-catch.on .fi-rod { animation: fi-rod 1.1s ease-in-out infinite alternate; }
+.fi-line {
+  position: absolute; left: 50%; top: 15%; bottom: 22%; width: 2px;
+  transform: translateX(-50%); transform-origin: 50% 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .7),
+                              rgba(255, 255, 255, .12));
+}
+.fi-line.tight { animation: fi-line .6s ease-out; }
+.fi-hole {
+  position: absolute; left: 50%; bottom: 13%; width: 46%; height: 12%;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 35%, #0b3153, #061525 72%);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .07),
+              inset 0 7px 16px rgba(0, 0, 0, .75);
+}
+.fi-hooked {
+  position: absolute; left: 50%; bottom: 15%; z-index: 2;
+  font-size: 42px; line-height: 1; transform: translateX(-50%);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .6));
+}
+.fi-hooked.fight { animation: fi-fight .34s ease-in-out infinite; }
+.fi-hooked.out { animation: fi-out .6s cubic-bezier(.2, .8, .25, 1) forwards; }
+
+.fi-catch-cap {
+  position: absolute; left: 0; right: 0; top: 16%; z-index: 3;
+  display: grid; gap: 1px; justify-items: center; text-align: center;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .3s ease, transform .3s ease;
+}
+.fi-catch-cap.on { opacity: 1; transform: none; }
+.fi-cap-mult {
+  font-size: 30px; font-weight: 800; line-height: 1; color: var(--gold);
+  text-shadow: 0 4px 18px rgba(240, 169, 43, .45);
+}
+.fi-cap-name { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.fi-catch-win {
+  position: absolute; left: 0; right: 0; bottom: 5%; z-index: 3;
+  text-align: center; font-size: 19px; font-weight: 800; color: var(--muted);
+}
+.fi-catch-win.good { color: var(--green); }
+.fi-catch-win.bad { font-size: 13.5px; font-weight: 700; }
+.fi-catch-win.good, .fi-catch-win.bad { animation: fi-rise .34s ease; }
+
+/* Лента прошлых раундов: чем закончились и с каким множителем. */
+.fi-ribbon {
+  display: flex; gap: 6px; overflow-x: auto; padding: 1px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.fi-ribbon::-webkit-scrollbar { display: none; }
+.fi-was {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 999px; font-style: normal; font-size: 13px;
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--card-line);
+}
+.fi-was b { font-size: 10.5px; font-weight: 700; color: var(--muted); }
+.fi-was.blue { border-color: rgba(58, 160, 255, .45); }
+.fi-was.orange { border-color: rgba(255, 159, 67, .45); }
+.fi-was.red { border-color: rgba(242, 68, 95, .5); }
+.fi-none { color: var(--muted); font-size: 12.5px; font-style: normal; }
+
+/* Карточки ставок. Цвет карточки — это цвет её секторов на колесе. */
+.fi-picks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.fi-pick {
+  position: relative; overflow: hidden;
+  display: grid; gap: 1px; justify-items: center;
+  padding: 9px 3px 8px; border-radius: 16px;
+  border: 1px solid var(--card-line); background: var(--card);
+  color: var(--text); font: inherit;
+  transition: transform .12s ease, border-color .15s ease, box-shadow .2s ease;
+}
+.fi-pick:active { transform: scale(.96); }
+.fi-pick[disabled] { opacity: .55; }
+.fi-pick.sending { opacity: .7; }
+.fi-face { font-size: 21px; line-height: 1.15; }
+.fi-name { font-size: 9.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.fi-mult {
+  font-size: 14.5px; font-weight: 800; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.fi-odds { font-size: 9px; color: var(--muted); opacity: .7; }
+.fi-mine {
+  margin-top: 2px; padding: 1px 7px; border-radius: 999px;
+  background: rgba(255, 207, 92, .16); color: var(--gold);
+  font-size: 10px; font-weight: 700;
+}
+.fi-mine:empty { display: none; }
+
+.fi-pick.blue { background: linear-gradient(180deg, rgba(58, 160, 255, .16), rgba(255, 255, 255, .04)); }
+.fi-pick.orange { background: linear-gradient(180deg, rgba(255, 159, 67, .16), rgba(255, 255, 255, .04)); }
+.fi-pick.red { background: linear-gradient(180deg, rgba(242, 68, 95, .17), rgba(255, 255, 255, .04)); }
+.fi-pick.link { background: linear-gradient(180deg, rgba(122, 136, 190, .18), rgba(255, 255, 255, .04)); }
+.fi-pick.blue .fi-mult { color: var(--fi-blue); }
+.fi-pick.orange .fi-mult { color: var(--fi-orange); }
+.fi-pick.red .fi-mult { color: var(--fi-red); }
+.fi-pick.link .fi-mult { color: #bcc6ea; }
+
+.fi-pick.has {
+  border-color: rgba(255, 207, 92, .7);
+  box-shadow: 0 0 0 1px rgba(255, 207, 92, .3), 0 8px 20px rgba(240, 169, 43, .18);
+}
+.fi-pick.boom { animation: fi-card .8s ease; }
+.fi-plus {
+  position: absolute; right: 6px; top: 5px;
+  font-size: 11px; font-weight: 800; color: var(--green);
+  animation: fi-plus 1.1s ease forwards;
+}
+
+@keyframes fi-beat {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.12); }
+}
+@keyframes fi-pop {
+  from { transform: translateX(-50%) scale(1); }
+  to   { transform: translateX(-50%) scale(1.35); }
+}
+@keyframes fi-boom {
+  0%   { transform: translateX(-50%) scale(1); }
+  35%  { transform: translateX(-50%) scale(1.5); }
+  100% { transform: translateX(-50%) scale(1); }
+}
+@keyframes fi-card {
+  0%   { transform: scale(1); }
+  22%  { transform: scale(1.09); box-shadow: 0 0 0 2px rgba(74, 222, 128, .5); }
+  100% { transform: scale(1); }
+}
+@keyframes fi-plus {
+  0%   { opacity: 0; transform: translateY(6px) scale(.8); }
+  25%  { opacity: 1; transform: translateY(0) scale(1.15); }
+  70%  { opacity: 1; transform: translateY(-8px) scale(1); }
+  100% { opacity: 0; transform: translateY(-16px) scale(.95); }
+}
+@keyframes fi-line {
+  0%   { transform: translateX(-50%) scaleX(1); }
+  30%  { transform: translateX(-50%) scaleX(2.4); }
+  100% { transform: translateX(-50%) scaleX(1); }
+}
+@keyframes fi-rod {
+  from { transform: translateX(-50%) rotate(-13deg); }
+  to   { transform: translateX(-50%) rotate(-5deg); }
+}
+@keyframes fi-fight {
+  0%, 100% { transform: translateX(-50%) rotate(-11deg); }
+  50%      { transform: translateX(-52%) rotate(13deg); }
+}
+@keyframes fi-out {
+  0%   { transform: translateX(-50%) translateY(0) scale(1) rotate(0deg); }
+  55%  { transform: translateX(-50%) translateY(-118%) scale(1.5) rotate(9deg); }
+  100% { transform: translateX(-50%) translateY(-148%) scale(1.65) rotate(-3deg); }
+}
+@keyframes fi-rise {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: none; }
+}
